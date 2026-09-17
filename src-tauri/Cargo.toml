@@ -1,0 +1,28 @@
+[package]
+name = "life-planner"
+version = "1.0.0"
+description = "本地人生规划工具"
+authors = ["life-planner"]
+edition = "2021"
+
+[lib]
+name = "life_planner_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+rfd = "0.15"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>人生规划 · 观测台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css?v=8" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <div>
+          <div class="brand-name">人生规划</div>
+          <div class="brand-sub">Atelier · 观测台</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav">
+        <a href="#/home" data-route="home"><i></i>首页</a>
+        <a href="#/areas" data-route="areas"><i></i>维度</a>
+        <a href="#/goals" data-route="goals"><i></i>目标</a>
+        <a href="#/week" data-route="week"><i></i>本周计划</a>
+        <a href="#/habits" data-route="habits"><i></i>习惯</a>
+        <a href="#/reviews" data-route="reviews"><i></i>复盘</a>
+        <div class="nav-spacer"></div>
+        <a href="#/settings" data-route="settings"><i></i>设置</a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="muted small">观测日</div>
+        <div class="small" id="demo-date"></div>
+      </div>
+    </aside>
+    <main class="main" id="view"></main>
+  </div>
+
+  <div id="drawer-root"></div>
+  <div id="modal-root"></div>
+  <div id="toast-root"></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
