@@ -23,6 +23,7 @@ const SETTING_KEYS: &[&str] = &[
     "sync_dir",
     "last_reminder_date",
     "last_sync_at",
+    "started_on",
 ];
 
 #[derive(Serialize, Deserialize, Default)]
@@ -124,6 +125,12 @@ pub struct HabitRow {
     pub frequency_target: i64,
     pub is_active: i64,
     pub created_at: String,
+    #[serde(default = "default_habit_kind")]
+    pub kind: String,
+}
+
+fn default_habit_kind() -> String {
+    "form".into()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -145,6 +152,8 @@ pub struct WeeklyRow {
     pub satisfaction: Option<i64>,
     pub status: String,
     pub submitted_at: Option<String>,
+    #[serde(default)]
+    pub next_tasks_created: i64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -253,6 +262,32 @@ pub fn import_json(conn: &Connection, data_dir: &Path, raw: &str) -> Result<Snap
     restore(conn, &doc)?;
     settings::upsert(conn, "last_backup_at", &snapshot.last_backup_at)?;
     Ok(snapshot)
+}
+
+const WIPE_SQL: &str = "DELETE FROM notes;
+         DELETE FROM habit_logs;
+         DELETE FROM weekly_reviews;
+         DELETE FROM monthly_reviews;
+         DELETE FROM yearly_reviews;
+         DELETE FROM tasks;
+         DELETE FROM habits;
+         DELETE FROM goal_status_history;
+         DELETE FROM goals WHERE level = 'week';
+         DELETE FROM goals WHERE level = 'month';
+         DELETE FROM goals WHERE level = 'quarter';
+         DELETE FROM goals WHERE level = 'year';
+         DELETE FROM goals WHERE level = 'life';
+         DELETE FROM areas;
+         DELETE FROM settings;";
+
+pub fn factory_reset(conn: &Connection, data_dir: &Path) -> Result<Snapshot, AppError> {
+    let snap = create_snapshot(conn, data_dir)?;
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(WIPE_SQL)?;
+    tx.commit()?;
+    db::seed::run(conn)?;
+    settings::upsert(conn, "last_backup_at", &snap.last_backup_at)?;
+    Ok(snap)
 }
 
 fn vacuum_into(conn: &Connection, dest: &Path) -> Result<(), AppError> {
@@ -413,7 +448,7 @@ fn query_tasks(conn: &Connection) -> Result<Vec<TaskRow>, AppError> {
 
 fn query_habits(conn: &Connection) -> Result<Vec<HabitRow>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, area_id, goal_id, frequency_type, frequency_target, is_active, created_at
+        "SELECT id, title, area_id, goal_id, frequency_type, frequency_target, is_active, created_at, kind
          FROM habits ORDER BY created_at, id",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -426,6 +461,7 @@ fn query_habits(conn: &Connection) -> Result<Vec<HabitRow>, AppError> {
             frequency_target: row.get(5)?,
             is_active: row.get(6)?,
             created_at: row.get(7)?,
+            kind: row.get(8)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -446,7 +482,7 @@ fn query_logs(conn: &Connection) -> Result<Vec<LogRow>, AppError> {
 fn query_weekly(conn: &Connection) -> Result<Vec<WeeklyRow>, AppError> {
     let mut stmt = conn.prepare(
         "SELECT id, week_start, summary_snapshot, q_went_well, q_not_well, q_reason, q_next_week,
-                satisfaction, status, submitted_at
+                satisfaction, status, submitted_at, COALESCE(next_tasks_created, 0)
          FROM weekly_reviews ORDER BY week_start",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -461,6 +497,7 @@ fn query_weekly(conn: &Connection) -> Result<Vec<WeeklyRow>, AppError> {
             satisfaction: row.get(7)?,
             status: row.get(8)?,
             submitted_at: row.get(9)?,
+            next_tasks_created: row.get(10)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -604,10 +641,10 @@ fn validate_setting(row: &SettingRow) -> Result<(), AppError> {
         "sync_dir" if row.value.chars().count() > 500 || row.value.contains('\0') => {
             Err(fail("同步目录无效"))
         }
-        "last_reminder_date"
+        "last_reminder_date" | "started_on"
             if !row.value.is_empty() && parse_date(&row.value).is_err() =>
         {
-            Err(fail("提醒日期无效"))
+            Err(fail("日期无效"))
         }
         _ => Ok(()),
     }
@@ -687,9 +724,11 @@ fn validate(doc: &ExportDoc) -> Result<(), AppError> {
             let parent_goal = doc.goals.iter().find(|g| g.id == parent).ok_or_else(|| {
                 fail("目标引用了不存在的上级")
             })?;
-            match domain::parent_level(&goal.level) {
-                Some(expected) if expected == parent_goal.level => {}
-                _ => return Err(fail("目标上下级层级不匹配")),
+            if !domain::is_allowed_parent(&goal.level, &parent_goal.level) {
+                return Err(fail("目标上下级层级不匹配"));
+            }
+            if parent_goal.level != "life" && parent_goal.area_id != goal.area_id {
+                return Err(fail("下级必须和上级在同一维度"));
             }
         } else if domain::parent_required(&goal.level) {
             return Err(fail("该层级目标必须有上级"));
@@ -722,8 +761,8 @@ fn validate(doc: &ExportDoc) -> Result<(), AppError> {
             let goal = doc.goals.iter().find(|g| g.id == goal_id).ok_or_else(|| {
                 fail("任务引用了不存在的目标")
             })?;
-            if goal.level != "week" {
-                return Err(fail("任务只能挂在周目标下"));
+            if !domain::task_goal_level_allowed(&goal.level) {
+                return Err(fail("任务不能挂在人生目标下"));
             }
         }
         require_flag(task.is_focus, "焦点标记")?;
@@ -744,6 +783,8 @@ fn validate(doc: &ExportDoc) -> Result<(), AppError> {
         domain::normalize_habit_title(&habit.title)
             .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
         domain::normalize_frequency(&habit.frequency_type, habit.frequency_target)
+            .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
+        domain::normalize_habit_kind(Some(habit.kind.as_str()))
             .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
         if !area_ids.contains(&habit.area_id) {
             return Err(fail("习惯引用了不存在的维度"));
@@ -845,23 +886,7 @@ fn validate(doc: &ExportDoc) -> Result<(), AppError> {
 
 fn restore(conn: &Connection, doc: &ExportDoc) -> Result<(), AppError> {
     let tx = conn.unchecked_transaction()?;
-    tx.execute_batch(
-        "DELETE FROM notes;
-         DELETE FROM habit_logs;
-         DELETE FROM weekly_reviews;
-         DELETE FROM monthly_reviews;
-         DELETE FROM yearly_reviews;
-         DELETE FROM tasks;
-         DELETE FROM habits;
-         DELETE FROM goal_status_history;
-         DELETE FROM goals WHERE level = 'week';
-         DELETE FROM goals WHERE level = 'month';
-         DELETE FROM goals WHERE level = 'quarter';
-         DELETE FROM goals WHERE level = 'year';
-         DELETE FROM goals WHERE level = 'life';
-         DELETE FROM areas;
-         DELETE FROM settings;",
-    )?;
+    tx.execute_batch(WIPE_SQL)?;
 
     let mut stmt = tx.prepare("INSERT INTO settings (key, value) VALUES (?1, ?2)")?;
     for row in &doc.settings {
@@ -960,8 +985,8 @@ fn restore(conn: &Connection, doc: &ExportDoc) -> Result<(), AppError> {
     drop(stmt);
 
     let mut stmt = tx.prepare(
-        "INSERT INTO habits (id, title, area_id, goal_id, frequency_type, frequency_target, is_active, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO habits (id, title, area_id, goal_id, frequency_type, frequency_target, is_active, created_at, kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     )?;
     for row in &doc.habits {
         let goal_id = row.goal_id.as_deref().filter(|v| !v.is_empty());
@@ -973,7 +998,8 @@ fn restore(conn: &Connection, doc: &ExportDoc) -> Result<(), AppError> {
             row.frequency_type,
             row.frequency_target,
             row.is_active,
-            row.created_at
+            row.created_at,
+            row.kind
         ])?;
     }
     drop(stmt);
@@ -987,8 +1013,8 @@ fn restore(conn: &Connection, doc: &ExportDoc) -> Result<(), AppError> {
     let mut stmt = tx.prepare(
         "INSERT INTO weekly_reviews (
             id, week_start, summary_snapshot, q_went_well, q_not_well, q_reason, q_next_week,
-            satisfaction, status, submitted_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            satisfaction, status, submitted_at, next_tasks_created
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )?;
     for row in &doc.weekly_reviews {
         stmt.execute(params![
@@ -1001,7 +1027,8 @@ fn restore(conn: &Connection, doc: &ExportDoc) -> Result<(), AppError> {
             row.q_next_week,
             row.satisfaction,
             row.status,
-            row.submitted_at
+            row.submitted_at,
+            row.next_tasks_created
         ])?;
     }
     drop(stmt);

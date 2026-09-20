@@ -16,6 +16,7 @@ use crate::error::{AppError, BACKFILL_WINDOW, HABIT_INACTIVE, NOT_FOUND, VALIDAT
 pub struct HabitRow {
     pub id: String,
     pub title: String,
+    pub kind: String,
     pub area_id: String,
     pub goal_id: Option<String>,
     pub frequency_type: String,
@@ -39,6 +40,7 @@ pub struct HabitDay {
 pub struct HabitDetail {
     pub id: String,
     pub title: String,
+    pub kind: String,
     pub area_id: String,
     pub goal_id: Option<String>,
     pub frequency_type: String,
@@ -60,6 +62,7 @@ pub struct HabitDetail {
 struct HabitRecord {
     id: String,
     title: String,
+    kind: String,
     area_id: String,
     goal_id: Option<String>,
     frequency_type: String,
@@ -83,18 +86,19 @@ fn map_habit(row: &rusqlite::Row<'_>) -> rusqlite::Result<HabitRecord> {
     Ok(HabitRecord {
         id: row.get(0)?,
         title: row.get(1)?,
-        area_id: row.get(2)?,
-        goal_id: row.get(3)?,
-        frequency_type: row.get(4)?,
-        frequency_target: row.get(5)?,
-        is_active: row.get::<_, i64>(6)? == 1,
-        created_at: row.get(7)?,
+        kind: row.get(2)?,
+        area_id: row.get(3)?,
+        goal_id: row.get(4)?,
+        frequency_type: row.get(5)?,
+        frequency_target: row.get(6)?,
+        is_active: row.get::<_, i64>(7)? == 1,
+        created_at: row.get(8)?,
     })
 }
 
 fn list_records(conn: &Connection) -> Result<Vec<HabitRecord>, AppError> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, area_id, goal_id, frequency_type, frequency_target, is_active, created_at
+        "SELECT id, title, kind, area_id, goal_id, frequency_type, frequency_target, is_active, created_at
          FROM habits ORDER BY created_at ASC, id ASC",
     )?;
     let rows = stmt.query_map([], map_habit)?;
@@ -103,7 +107,7 @@ fn list_records(conn: &Connection) -> Result<Vec<HabitRecord>, AppError> {
 
 fn get_record(conn: &Connection, id: &str) -> Result<HabitRecord, AppError> {
     conn.query_row(
-        "SELECT id, title, area_id, goal_id, frequency_type, frequency_target, is_active, created_at
+        "SELECT id, title, kind, area_id, goal_id, frequency_type, frequency_target, is_active, created_at
          FROM habits WHERE id = ?1",
         [id],
         map_habit,
@@ -239,6 +243,7 @@ fn to_row(
     HabitRow {
         id: habit.id.clone(),
         title: habit.title.clone(),
+        kind: habit.kind.clone(),
         area_id: habit.area_id.clone(),
         goal_id: habit.goal_id.clone(),
         frequency_type: habit.frequency_type.clone(),
@@ -299,6 +304,7 @@ fn detail_of(conn: &Connection, id: &str) -> Result<HabitDetail, AppError> {
     Ok(HabitDetail {
         id: habit.id.clone(),
         title: habit.title.clone(),
+        kind: habit.kind.clone(),
         area_id: habit.area_id.clone(),
         goal_id: habit.goal_id.clone(),
         frequency_type: habit.frequency_type.clone(),
@@ -335,15 +341,17 @@ pub(crate) fn insert_habit(
     frequency_type: &str,
     frequency_target: i64,
     goal_id: Option<&str>,
+    kind: &str,
 ) -> Result<(), AppError> {
     require_area(conn, area_id)?;
     let goal_id = resolve_goal(conn, area_id, goal_id)?;
     conn.execute(
-        "INSERT INTO habits (id, title, area_id, goal_id, frequency_type, frequency_target, is_active, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, datetime('now'))",
+        "INSERT INTO habits (id, title, kind, area_id, goal_id, frequency_type, frequency_target, is_active, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, datetime('now'))",
         params![
             db::new_id("h"),
             title,
+            kind,
             area_id,
             goal_id,
             frequency_type,
@@ -361,10 +369,13 @@ pub fn create_habit(
     frequency_type: String,
     frequency_target: i64,
     goal_id: Option<String>,
+    kind: Option<String>,
 ) -> Result<Vec<HabitRow>, AppError> {
     let title = domain::normalize_habit_title(&title)
         .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
     let (frequency_type, frequency_target) = domain::normalize_frequency(&frequency_type, frequency_target)
+        .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
+    let kind = domain::normalize_habit_kind(kind.as_deref())
         .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
     db::with_conn(&db, |conn| {
         insert_habit(
@@ -374,6 +385,7 @@ pub fn create_habit(
             &frequency_type,
             frequency_target,
             goal_id.as_deref(),
+            &kind,
         )?;
         list_rows(conn)
     })
@@ -388,19 +400,22 @@ pub fn update_habit(
     frequency_type: String,
     frequency_target: i64,
     goal_id: Option<String>,
+    kind: Option<String>,
 ) -> Result<HabitDetail, AppError> {
     let title = domain::normalize_habit_title(&title)
         .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
     let (frequency_type, frequency_target) = domain::normalize_frequency(&frequency_type, frequency_target)
+        .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
+    let kind = domain::normalize_habit_kind(kind.as_deref())
         .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
     db::with_conn(&db, |conn| {
         get_record(conn, &id)?;
         require_area(conn, &area_id)?;
         let goal_id = resolve_goal(conn, &area_id, goal_id.as_deref())?;
         conn.execute(
-            "UPDATE habits SET title = ?1, area_id = ?2, goal_id = ?3, frequency_type = ?4, frequency_target = ?5
-             WHERE id = ?6",
-            params![title, area_id, goal_id, frequency_type, frequency_target, id],
+            "UPDATE habits SET title = ?1, kind = ?2, area_id = ?3, goal_id = ?4, frequency_type = ?5, frequency_target = ?6
+             WHERE id = ?7",
+            params![title, kind, area_id, goal_id, frequency_type, frequency_target, id],
         )?;
         detail_of(conn, &id)
     })

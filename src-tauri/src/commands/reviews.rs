@@ -3,13 +3,15 @@ use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::commands::areas::{apply_scores, AreaScoreInput};
 use crate::commands::notes::{self, Note};
+use crate::commands::tasks::{carry_unfinished_from, insert_task, list_unfinished};
 use crate::db::{self, Db};
 use crate::domain::{
     self, add_days, format_date, habit_expected, last_day_of_month, parse_date, percent, today,
     week_start,
 };
-use crate::error::{AppError, REVIEW_LOCKED, VALIDATION_FAILED};
+use crate::error::{AppError, NOT_FOUND, REVIEW_LOCKED, REVIEW_NEXT_TASKS_DONE, VALIDATION_FAILED};
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CarriedTask {
@@ -17,10 +19,51 @@ pub struct CarriedTask {
     pub carried: i64,
 }
 
+fn default_habit_kind() -> String {
+    "form".into()
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SnapHabit {
     pub title: String,
     pub rate: i64,
+    #[serde(default = "default_habit_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub goal_title: Option<String>,
+}
+
+struct HabitSnapSrc {
+    id: String,
+    title: String,
+    freq: String,
+    target: i64,
+    kind: String,
+    goal_title: Option<String>,
+}
+
+fn list_active_habits_for_snap(conn: &Connection) -> Result<Vec<HabitSnapSrc>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT h.id, h.title, h.frequency_type, h.frequency_target, h.kind, g.title
+         FROM habits h
+         LEFT JOIN goals g ON g.id = h.goal_id
+         WHERE h.is_active = 1
+         ORDER BY h.created_at ASC, h.id ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(HabitSnapSrc {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            freq: row.get(2)?,
+            target: row.get(3)?,
+            kind: row.get(4)?,
+            goal_title: row
+                .get::<_, Option<String>>(5)?
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty()),
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -47,6 +90,24 @@ pub struct WeekSat {
     pub satisfaction: i64,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SnapArea {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub score: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct SnapGoalTasks {
+    pub id: String,
+    pub title: String,
+    pub level: String,
+    pub color: String,
+    pub done: i64,
+    pub total: i64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct MonthSnapshot {
     pub satisfaction_avg: f64,
@@ -57,6 +118,10 @@ pub struct MonthSnapshot {
     pub habit_rates: Vec<SnapHabit>,
     pub goals_done: i64,
     pub goals_total: i64,
+    #[serde(default)]
+    pub area_scores: Vec<SnapArea>,
+    #[serde(default)]
+    pub goal_tasks: Vec<SnapGoalTasks>,
 }
 
 #[derive(Serialize)]
@@ -85,6 +150,12 @@ pub struct ReviewList {
     pub weekday: i64,
 }
 
+#[derive(Serialize, Clone)]
+pub struct ReviewTodo {
+    pub id: String,
+    pub title: String,
+}
+
 #[derive(Serialize)]
 pub struct WeeklyReviewView {
     pub week_start: String,
@@ -97,6 +168,8 @@ pub struct WeeklyReviewView {
     pub submitted_at: Option<String>,
     pub snapshot: WeekSnapshot,
     pub notes: Vec<Note>,
+    pub next_tasks_created: bool,
+    pub unfinished: Vec<ReviewTodo>,
 }
 
 #[derive(Serialize)]
@@ -139,6 +212,10 @@ pub struct YearSnapshot {
     pub goals_done: i64,
     pub goals_total: i64,
     pub life_goals: Vec<SnapGoal>,
+    #[serde(default)]
+    pub area_scores: Vec<SnapArea>,
+    #[serde(default)]
+    pub goal_tasks: Vec<SnapGoalTasks>,
 }
 
 #[derive(Serialize)]
@@ -238,31 +315,19 @@ fn week_snapshot(conn: &Connection, week: &str) -> Result<WeekSnapshot, AppError
         )
         .optional()?;
 
-    let mut hstmt = conn.prepare(
-        "SELECT id, title, frequency_type, frequency_target FROM habits WHERE is_active = 1
-         ORDER BY created_at ASC, id ASC",
-    )?;
-    let habits_raw = hstmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
     let mut habits = Vec::new();
-    for (id, title, _freq, target) in habits_raw {
+    for src in list_active_habits_for_snap(conn)? {
         let n: i64 = conn.query_row(
             "SELECT COUNT(1) FROM habit_logs
              WHERE habit_id = ?1 AND done = 1 AND date >= ?2 AND date <= ?3",
-            params![id, week, end],
+            params![src.id, week, end],
             |row| row.get(0),
         )?;
         habits.push(SnapHabit {
-            title,
-            rate: percent(n, target),
+            title: src.title,
+            rate: percent(n, src.target),
+            kind: src.kind,
+            goal_title: src.goal_title,
         });
     }
 
@@ -345,33 +410,21 @@ fn month_snapshot(conn: &Connection, month: &str) -> Result<MonthSnapshot, AppEr
     };
 
     let last = last_day_of_month(year, mon).day();
-    let mut hstmt = conn.prepare(
-        "SELECT id, title, frequency_type, frequency_target FROM habits WHERE is_active = 1
-         ORDER BY created_at ASC, id ASC",
-    )?;
-    let habits_raw = hstmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
     let mut habit_rates = Vec::new();
-    for (id, title, freq, target) in habits_raw {
+    for src in list_active_habits_for_snap(conn)? {
         let from = format!("{year:04}-{mon:02}-01");
         let to = format!("{year:04}-{mon:02}-{last:02}");
         let done: i64 = conn.query_row(
             "SELECT COUNT(1) FROM habit_logs
              WHERE habit_id = ?1 AND done = 1 AND date >= ?2 AND date <= ?3",
-            params![id, from, to],
+            params![src.id, from, to],
             |row| row.get(0),
         )?;
         habit_rates.push(SnapHabit {
-            title,
-            rate: percent(done, habit_expected(&freq, target, last)),
+            title: src.title,
+            rate: percent(done, habit_expected(&src.freq, src.target, last)),
+            kind: src.kind,
+            goal_title: src.goal_title,
         });
     }
     let habit_rate = if habit_rates.is_empty() {
@@ -389,6 +442,10 @@ fn month_snapshot(conn: &Connection, month: &str) -> Result<MonthSnapshot, AppEr
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
 
+    let month_start = NaiveDate::from_ymd_opt(year, mon, 1).expect("month start");
+    let month_end = last_day_of_month(year, mon);
+    let (task_from, task_to) = covering_week_range(conn, month_start, month_end)?;
+
     Ok(MonthSnapshot {
         satisfaction_avg,
         habit_rate,
@@ -398,7 +455,68 @@ fn month_snapshot(conn: &Connection, month: &str) -> Result<MonthSnapshot, AppEr
         habit_rates,
         goals_done,
         goals_total,
+        area_scores: snap_area_scores(conn)?,
+        goal_tasks: snap_goal_tasks(conn, &task_from, &task_to)?,
     })
+}
+
+fn covering_week_range(
+    conn: &Connection,
+    start: NaiveDate,
+    end: NaiveDate,
+) -> Result<(String, String), AppError> {
+    let on = week_starts_on(conn)?;
+    Ok((
+        format_date(week_start(start, on)),
+        format_date(week_start(end, on)),
+    ))
+}
+
+fn snap_goal_tasks(
+    conn: &Connection,
+    week_from: &str,
+    week_to: &str,
+) -> Result<Vec<SnapGoalTasks>, AppError> {
+    let mut stmt = conn.prepare(
+        "SELECT g.id, g.title, g.level, a.color,
+                COUNT(t.id),
+                COALESCE(SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END), 0)
+         FROM tasks t
+         JOIN goals g ON g.id = t.goal_id
+         JOIN areas a ON a.id = g.area_id
+         WHERE g.level IN ('month', 'quarter', 'year')
+           AND t.week_start >= ?1 AND t.week_start <= ?2
+         GROUP BY g.id
+         HAVING COUNT(t.id) > 0
+         ORDER BY CASE g.level WHEN 'year' THEN 1 WHEN 'quarter' THEN 2 ELSE 3 END,
+                  g.created_at ASC, g.id ASC",
+    )?;
+    let rows = stmt.query_map(params![week_from, week_to], |row| {
+        Ok(SnapGoalTasks {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            level: row.get(2)?,
+            color: row.get(3)?,
+            total: row.get(4)?,
+            done: row.get(5)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+fn snap_area_scores(conn: &Connection) -> Result<Vec<SnapArea>, AppError> {
+    let mut astmt = conn.prepare(
+        "SELECT id, name, color, score FROM areas WHERE is_archived = 0 ORDER BY sort_order ASC, id ASC",
+    )?;
+    let rows = astmt.query_map([], |row| {
+        Ok(SnapArea {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            color: row.get(2)?,
+            score: row.get::<_, Option<i64>>(3)?.unwrap_or(5),
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 fn month_goals(conn: &Connection, month: &str) -> Result<Vec<MonthGoal>, AppError> {
@@ -513,31 +631,19 @@ fn year_snapshot(conn: &Connection, year: &str) -> Result<YearSnapshot, AppError
     } else {
         365
     };
-    let mut hstmt = conn.prepare(
-        "SELECT id, title, frequency_type, frequency_target FROM habits WHERE is_active = 1
-         ORDER BY created_at ASC, id ASC",
-    )?;
-    let habits_raw = hstmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
     let mut habit_rates = Vec::new();
-    for (id, title, freq, target) in habits_raw {
+    for src in list_active_habits_for_snap(conn)? {
         let done: i64 = conn.query_row(
             "SELECT COUNT(1) FROM habit_logs
              WHERE habit_id = ?1 AND done = 1 AND date >= ?2 AND date <= ?3",
-            params![id, from, to],
+            params![src.id, from, to],
             |row| row.get(0),
         )?;
         habit_rates.push(SnapHabit {
-            title,
-            rate: percent(done, habit_expected(&freq, target, days)),
+            title: src.title,
+            rate: percent(done, habit_expected(&src.freq, src.target, days)),
+            kind: src.kind,
+            goal_title: src.goal_title,
         });
     }
     let habit_rate = if habit_rates.is_empty() {
@@ -582,6 +688,13 @@ fn year_snapshot(conn: &Connection, year: &str) -> Result<YearSnapshot, AppError
         goals_done,
         goals_total,
         life_goals,
+        area_scores: snap_area_scores(conn)?,
+        goal_tasks: {
+            let start = NaiveDate::from_ymd_opt(year_n, 1, 1).expect("year start");
+            let end = NaiveDate::from_ymd_opt(year_n, 12, 31).expect("year end");
+            let (task_from, task_to) = covering_week_range(conn, start, end)?;
+            snap_goal_tasks(conn, &task_from, &task_to)?
+        },
     })
 }
 
@@ -664,6 +777,16 @@ fn require_editable(conn: &Connection, week: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+fn review_todos(conn: &Connection, week: &str) -> Result<Vec<ReviewTodo>, AppError> {
+    Ok(list_unfinished(conn, week)?
+        .into_iter()
+        .map(|task| ReviewTodo {
+            id: task.id,
+            title: task.title,
+        })
+        .collect())
+}
+
 pub(crate) fn weekly_view(conn: &Connection, week: &str) -> Result<WeeklyReviewView, AppError> {
     let row: Option<(
         Option<String>,
@@ -674,9 +797,11 @@ pub(crate) fn weekly_view(conn: &Connection, week: &str) -> Result<WeeklyReviewV
         String,
         Option<String>,
         Option<String>,
+        i64,
     )> = conn
         .query_row(
-            "SELECT q_went_well, q_not_well, q_reason, q_next_week, satisfaction, status, submitted_at, summary_snapshot
+            "SELECT q_went_well, q_not_well, q_reason, q_next_week, satisfaction, status, submitted_at, summary_snapshot,
+                    COALESCE(next_tasks_created, 0)
              FROM weekly_reviews WHERE week_start = ?1",
             [week],
             |r| {
@@ -689,27 +814,32 @@ pub(crate) fn weekly_view(conn: &Connection, week: &str) -> Result<WeeklyReviewV
                     r.get(5)?,
                     r.get(6)?,
                     r.get(7)?,
+                    r.get(8)?,
                 ))
             },
         )
         .optional()?;
     match row {
-        Some((went, not, reason, next, sat, status, submitted_at, snap)) => Ok(WeeklyReviewView {
-            week_start: week.to_string(),
-            status,
-            q_went_well: went.unwrap_or_default(),
-            q_not_well: not.unwrap_or_default(),
-            q_reason: reason.unwrap_or_default(),
-            q_next_week: next.unwrap_or_default(),
-            satisfaction: sat.unwrap_or(7),
-            submitted_at,
-            snapshot: if snap.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
-                parse_week_snap(&snap)
-            } else {
-                week_snapshot(conn, week)?
-            },
-            notes: notes_for_week(conn, week)?,
-        }),
+        Some((went, not, reason, next, sat, status, submitted_at, snap, next_tasks_created)) => {
+            Ok(WeeklyReviewView {
+                week_start: week.to_string(),
+                status,
+                q_went_well: went.unwrap_or_default(),
+                q_not_well: not.unwrap_or_default(),
+                q_reason: reason.unwrap_or_default(),
+                q_next_week: next.unwrap_or_default(),
+                satisfaction: sat.unwrap_or(7),
+                submitted_at,
+                snapshot: if snap.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+                    parse_week_snap(&snap)
+                } else {
+                    week_snapshot(conn, week)?
+                },
+                notes: notes_for_week(conn, week)?,
+                next_tasks_created: next_tasks_created == 1,
+                unfinished: review_todos(conn, week)?,
+            })
+        }
         None => Ok(WeeklyReviewView {
             week_start: week.to_string(),
             status: "none".into(),
@@ -721,6 +851,8 @@ pub(crate) fn weekly_view(conn: &Connection, week: &str) -> Result<WeeklyReviewV
             submitted_at: None,
             snapshot: week_snapshot(conn, week)?,
             notes: notes_for_week(conn, week)?,
+            next_tasks_created: false,
+            unfinished: review_todos(conn, week)?,
         }),
     }
 }
@@ -793,25 +925,28 @@ fn clamp_sat(v: i64) -> Result<i64, AppError> {
     }
 }
 
-#[tauri::command]
-pub fn list_reviews(db: State<'_, Db>) -> Result<ReviewList, AppError> {
-    db::with_conn(&db, |conn| {
+pub(crate) fn review_list(conn: &Connection) -> Result<ReviewList, AppError> {
         let today = today();
         let week_on = week_starts_on(conn)?;
         let this_week = format_date(week_start(today, week_on));
         let this_month = format!("{:04}-{:02}", today.year(), today.month());
         let this_year = format!("{:04}", today.year());
+        let started_on = crate::commands::settings::ensure_started_on(conn)?;
         let mut pending = Vec::new();
-        for i in 1..=4 {
-            let ws = format_date(add_days(
-                parse_date(&this_week).map_err(|m| AppError::new(VALIDATION_FAILED, m))?,
-                -7 * i,
-            ));
-            let status = weekly_status(conn, &ws)?;
+        let prev_week = format_date(add_days(
+            parse_date(&this_week).map_err(|m| AppError::new(VALIDATION_FAILED, m))?,
+            -7,
+        ));
+        let prev_week_end = add_days(
+            parse_date(&prev_week).map_err(|m| AppError::new(VALIDATION_FAILED, m))?,
+            6,
+        );
+        if prev_week_end >= started_on {
+            let status = weekly_status(conn, &prev_week)?;
             if status.as_deref().map(locked) != Some(true) {
                 pending.push(PendingItem {
                     kind: "weekly".into(),
-                    key: ws,
+                    key: prev_week,
                     draft: status.as_deref() == Some("draft"),
                 });
             }
@@ -829,12 +964,16 @@ pub fn list_reviews(db: State<'_, Db>) -> Result<ReviewList, AppError> {
                 |row| row.get(0),
             )
             .optional()?;
+        let (py, pm) = if m == 1 { (y - 1, 12) } else { (y, m - 1) };
         if mstatus.as_deref() != Some("submitted") {
-            pending.push(PendingItem {
-                kind: "monthly".into(),
-                key: prev_month,
-                draft: mstatus.as_deref() == Some("draft"),
-            });
+            let month_end = last_day_of_month(py, pm);
+            if month_end >= started_on {
+                pending.push(PendingItem {
+                    kind: "monthly".into(),
+                    key: prev_month,
+                    draft: mstatus.as_deref() == Some("draft"),
+                });
+            }
         }
         let prev_year = format!("{:04}", y - 1);
         let ystatus: Option<String> = conn
@@ -845,11 +984,15 @@ pub fn list_reviews(db: State<'_, Db>) -> Result<ReviewList, AppError> {
             )
             .optional()?;
         if ystatus.as_deref() != Some("submitted") {
-            pending.push(PendingItem {
-                kind: "yearly".into(),
-                key: prev_year,
-                draft: ystatus.as_deref() == Some("draft"),
-            });
+            let year_end = chrono::NaiveDate::from_ymd_opt(y - 1, 12, 31)
+                .unwrap_or(started_on);
+            if year_end >= started_on {
+                pending.push(PendingItem {
+                    kind: "yearly".into(),
+                    key: prev_year,
+                    draft: ystatus.as_deref() == Some("draft"),
+                });
+            }
         }
 
         let mut history = Vec::new();
@@ -915,7 +1058,11 @@ pub fn list_reviews(db: State<'_, Db>) -> Result<ReviewList, AppError> {
             this_year,
             weekday: i64::from(today.weekday().num_days_from_sunday()),
         })
-    })
+}
+
+#[tauri::command]
+pub fn list_reviews(db: State<'_, Db>) -> Result<ReviewList, AppError> {
+    db::with_conn(&db, review_list)
 }
 
 #[tauri::command]
@@ -1007,21 +1154,92 @@ pub fn submit_weekly_review(
     })
 }
 
+pub(crate) fn apply_weekly_next_tasks(
+    conn: &Connection,
+    week_start: &str,
+    titles: &[String],
+    carry_unfinished: bool,
+) -> Result<WeeklyReviewView, AppError> {
+    let week = canonical_week(conn, week_start)?;
+    let (status, created): (String, i64) = conn
+        .query_row(
+            "SELECT status, COALESCE(next_tasks_created, 0) FROM weekly_reviews WHERE week_start = ?1",
+            [&week],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::new(NOT_FOUND, "该周还没有复盘"))?;
+    if status != "submitted" {
+        return Err(AppError::new(
+            VALIDATION_FAILED,
+            "只有提交后的周复盘才能带出下周任务",
+        ));
+    }
+    if created != 0 {
+        return Err(AppError::new(
+            REVIEW_NEXT_TASKS_DONE,
+            "这周已经确认过下周安排",
+        ));
+    }
+    let titles = domain::normalize_review_next_titles(titles)
+        .map_err(|m| AppError::new(VALIDATION_FAILED, m))?;
+    if carry_unfinished {
+        carry_unfinished_from(conn, &week)?;
+    }
+    let next_week = format_date(add_days(
+        parse_date(&week).map_err(|m| AppError::new(VALIDATION_FAILED, m))?,
+        7,
+    ));
+    for title in &titles {
+        insert_task(conn, title, &next_week, None, None, false)?;
+    }
+    conn.execute(
+        "UPDATE weekly_reviews SET next_tasks_created = 1 WHERE week_start = ?1",
+        [&week],
+    )?;
+    weekly_view(conn, &week)
+}
+
+#[tauri::command]
+pub fn apply_weekly_next_week_tasks(
+    db: State<'_, Db>,
+    week_start: String,
+    titles: Vec<String>,
+    carry_unfinished: Option<bool>,
+) -> Result<WeeklyReviewView, AppError> {
+    db::with_conn(&db, |conn| {
+        let tx = conn.unchecked_transaction()?;
+        let view = apply_weekly_next_tasks(
+            &tx,
+            &week_start,
+            &titles,
+            carry_unfinished.unwrap_or(false),
+        )?;
+        tx.commit()?;
+        Ok(view)
+    })
+}
+
+pub(crate) fn skip_weekly_review_record(
+    conn: &Connection,
+    week_start: &str,
+) -> Result<WeeklyReviewView, AppError> {
+    let week = canonical_week(conn, week_start)?;
+    require_editable(conn, &week)?;
+    conn.execute(
+        "INSERT INTO weekly_reviews (id, week_start, status, submitted_at)
+         VALUES (?1, ?2, 'skipped', datetime('now'))
+         ON CONFLICT(week_start) DO UPDATE SET
+           status = 'skipped',
+           submitted_at = excluded.submitted_at",
+        params![db::new_id("wr"), week],
+    )?;
+    weekly_view(conn, &week)
+}
+
 #[tauri::command]
 pub fn skip_weekly_review(db: State<'_, Db>, week_start: String) -> Result<WeeklyReviewView, AppError> {
-    db::with_conn(&db, |conn| {
-        let week = canonical_week(conn, &week_start)?;
-        require_editable(conn, &week)?;
-        conn.execute(
-            "INSERT INTO weekly_reviews (id, week_start, status, submitted_at)
-             VALUES (?1, ?2, 'skipped', datetime('now'))
-             ON CONFLICT(week_start) DO UPDATE SET
-               status = 'skipped',
-               submitted_at = excluded.submitted_at",
-            params![db::new_id("wr"), week],
-        )?;
-        weekly_view(conn, &week)
-    })
+    db::with_conn(&db, |conn| skip_weekly_review_record(conn, &week_start))
 }
 
 #[tauri::command]
@@ -1072,6 +1290,46 @@ pub fn save_monthly_draft(
     })
 }
 
+pub(crate) fn submit_monthly_review_record(
+    conn: &Connection,
+    month: &str,
+    progress: &str,
+    insight: &str,
+    next: &str,
+    scores: Option<&[AreaScoreInput]>,
+) -> Result<MonthlyReviewView, AppError> {
+    let (_, _, month) = parse_month(month)?;
+    let status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM monthly_reviews WHERE month = ?1",
+            [&month],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if status.as_deref() == Some("submitted") {
+        return Err(AppError::new(REVIEW_LOCKED, "该月复盘已提交，不能再改"));
+    }
+    if let Some(scores) = scores.filter(|rows| !rows.is_empty()) {
+        apply_scores(conn, scores)?;
+    }
+    let snap = serde_json::to_string(&month_snapshot(conn, &month)?)
+        .map_err(|e| AppError::new(VALIDATION_FAILED, e.to_string()))?;
+    conn.execute(
+        "INSERT INTO monthly_reviews
+           (id, month, summary_snapshot, q_progress, q_insight, q_next_month, status, submitted_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'submitted', datetime('now'))
+         ON CONFLICT(month) DO UPDATE SET
+           summary_snapshot = excluded.summary_snapshot,
+           q_progress = excluded.q_progress,
+           q_insight = excluded.q_insight,
+           q_next_month = excluded.q_next_month,
+           status = 'submitted',
+           submitted_at = excluded.submitted_at",
+        params![db::new_id("mr"), month, snap, progress, insight, next],
+    )?;
+    monthly_view(conn, &month)
+}
+
 #[tauri::command]
 pub fn submit_monthly_review(
     db: State<'_, Db>,
@@ -1079,6 +1337,7 @@ pub fn submit_monthly_review(
     q_progress: String,
     q_insight: String,
     q_next_month: String,
+    scores: Option<Vec<AreaScoreInput>>,
 ) -> Result<MonthlyReviewView, AppError> {
     let progress = domain::normalize_review_answer(&q_progress, true)
         .map_err(|_| AppError::new(VALIDATION_FAILED, "三个问题都要回答"))?;
@@ -1087,33 +1346,14 @@ pub fn submit_monthly_review(
     let next = domain::normalize_review_answer(&q_next_month, true)
         .map_err(|_| AppError::new(VALIDATION_FAILED, "三个问题都要回答"))?;
     db::with_conn(&db, |conn| {
-        let (_, _, month) = parse_month(&month)?;
-        let status: Option<String> = conn
-            .query_row(
-                "SELECT status FROM monthly_reviews WHERE month = ?1",
-                [&month],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if status.as_deref() == Some("submitted") {
-            return Err(AppError::new(REVIEW_LOCKED, "该月复盘已提交，不能再改"));
-        }
-        let snap = serde_json::to_string(&month_snapshot(conn, &month)?)
-            .map_err(|e| AppError::new(VALIDATION_FAILED, e.to_string()))?;
-        conn.execute(
-            "INSERT INTO monthly_reviews
-               (id, month, summary_snapshot, q_progress, q_insight, q_next_month, status, submitted_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'submitted', datetime('now'))
-             ON CONFLICT(month) DO UPDATE SET
-               summary_snapshot = excluded.summary_snapshot,
-               q_progress = excluded.q_progress,
-               q_insight = excluded.q_insight,
-               q_next_month = excluded.q_next_month,
-               status = 'submitted',
-               submitted_at = excluded.submitted_at",
-            params![db::new_id("mr"), month, snap, progress, insight, next],
-        )?;
-        monthly_view(conn, &month)
+        submit_monthly_review_record(
+            conn,
+            &month,
+            &progress,
+            &insight,
+            &next,
+            scores.as_deref(),
+        )
     })
 }
 
@@ -1165,6 +1405,46 @@ pub fn save_yearly_draft(
     })
 }
 
+pub(crate) fn submit_yearly_review_record(
+    conn: &Connection,
+    year: &str,
+    progress: &str,
+    insight: &str,
+    next: &str,
+    scores: Option<&[AreaScoreInput]>,
+) -> Result<YearlyReviewView, AppError> {
+    let year = parse_year(year)?;
+    let status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM yearly_reviews WHERE year = ?1",
+            [&year],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if status.as_deref() == Some("submitted") {
+        return Err(AppError::new(REVIEW_LOCKED, "该年复盘已提交，不能再改"));
+    }
+    if let Some(scores) = scores.filter(|rows| !rows.is_empty()) {
+        apply_scores(conn, scores)?;
+    }
+    let snap = serde_json::to_string(&year_snapshot(conn, &year)?)
+        .map_err(|e| AppError::new(VALIDATION_FAILED, e.to_string()))?;
+    conn.execute(
+        "INSERT INTO yearly_reviews
+           (id, year, summary_snapshot, q_progress, q_insight, q_next_year, status, submitted_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'submitted', datetime('now'))
+         ON CONFLICT(year) DO UPDATE SET
+           summary_snapshot = excluded.summary_snapshot,
+           q_progress = excluded.q_progress,
+           q_insight = excluded.q_insight,
+           q_next_year = excluded.q_next_year,
+           status = 'submitted',
+           submitted_at = excluded.submitted_at",
+        params![db::new_id("yr"), year, snap, progress, insight, next],
+    )?;
+    yearly_view(conn, &year)
+}
+
 #[tauri::command]
 pub fn submit_yearly_review(
     db: State<'_, Db>,
@@ -1172,6 +1452,7 @@ pub fn submit_yearly_review(
     q_progress: String,
     q_insight: String,
     q_next_year: String,
+    scores: Option<Vec<AreaScoreInput>>,
 ) -> Result<YearlyReviewView, AppError> {
     let progress = domain::normalize_review_answer(&q_progress, true)
         .map_err(|_| AppError::new(VALIDATION_FAILED, "三个问题都要回答"))?;
@@ -1180,32 +1461,13 @@ pub fn submit_yearly_review(
     let next = domain::normalize_review_answer(&q_next_year, true)
         .map_err(|_| AppError::new(VALIDATION_FAILED, "三个问题都要回答"))?;
     db::with_conn(&db, |conn| {
-        let year = parse_year(&year)?;
-        let status: Option<String> = conn
-            .query_row(
-                "SELECT status FROM yearly_reviews WHERE year = ?1",
-                [&year],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if status.as_deref() == Some("submitted") {
-            return Err(AppError::new(REVIEW_LOCKED, "该年复盘已提交，不能再改"));
-        }
-        let snap = serde_json::to_string(&year_snapshot(conn, &year)?)
-            .map_err(|e| AppError::new(VALIDATION_FAILED, e.to_string()))?;
-        conn.execute(
-            "INSERT INTO yearly_reviews
-               (id, year, summary_snapshot, q_progress, q_insight, q_next_year, status, submitted_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'submitted', datetime('now'))
-             ON CONFLICT(year) DO UPDATE SET
-               summary_snapshot = excluded.summary_snapshot,
-               q_progress = excluded.q_progress,
-               q_insight = excluded.q_insight,
-               q_next_year = excluded.q_next_year,
-               status = 'submitted',
-               submitted_at = excluded.submitted_at",
-            params![db::new_id("yr"), year, snap, progress, insight, next],
-        )?;
-        yearly_view(conn, &year)
+        submit_yearly_review_record(
+            conn,
+            &year,
+            &progress,
+            &insight,
+            &next,
+            scores.as_deref(),
+        )
     })
 }

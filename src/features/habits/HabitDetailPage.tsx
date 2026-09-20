@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { habitFreqLabel } from "../../shared/constants";
+import { habitCheckLabel, HABIT_KIND_LABEL, habitFreqLabel, habitHeatLegend, habitHeatTitle, habitKindOf, habitToggleError, HabitKind } from "../../shared/constants";
 import { daysInMonth, fmtMd, fmtMonth, isoDate, mondayOffset, weekdayLabel } from "../../shared/time";
 import type { Goal, HabitDetail } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
@@ -70,7 +70,7 @@ export function HabitDetailPage() {
     try {
       setHabit(await api.toggleHabitLog(habit.id, date));
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "打卡失败");
+      notify(e instanceof ApiError ? e.message : habitToggleError(habitKindOf(habit.kind)));
     } finally {
       setBusy(false);
     }
@@ -93,6 +93,8 @@ export function HabitDetailPage() {
 
   const area = areas.find((a) => a.id === habit.area_id);
   const prevLabel = Number(habit.prev_month.slice(5));
+  const kind = habitKindOf(habit.kind);
+  const broke = kind === HabitKind.Break;
 
   return (
     <>
@@ -109,6 +111,7 @@ export function HabitDetailPage() {
               style={{ background: area?.color ?? "var(--muted)", width: 12, height: 12 }}
             />
             {habit.title}
+            <span className={`tag kind-${kind}`}>{HABIT_KIND_LABEL[kind]}</span>
           </h1>
           <p className="page-sub">
             {area?.name ?? "未知维度"}
@@ -126,6 +129,7 @@ export function HabitDetailPage() {
               setForm({
                 id: habit.id,
                 title: habit.title,
+                kind,
                 areaId: habit.area_id,
                 goalId: habit.goal_id ?? "",
                 frequencyType: habit.frequency_type,
@@ -164,7 +168,7 @@ export function HabitDetailPage() {
             <span className="v">
               {habit.streak_n} <span className="small muted">{habit.streak_unit}</span>
             </span>
-            <span className="k">当前连续</span>
+            <span className="k">{broke ? "当前连续守住" : "当前连续"}</span>
           </div>
         </section>
         <section className="card">
@@ -172,19 +176,19 @@ export function HabitDetailPage() {
             <span className="v">
               {habit.week_count}/{habit.frequency_target}
             </span>
-            <span className="k">本周完成</span>
+            <span className="k">{broke ? "本周守住" : "本周完成"}</span>
           </div>
         </section>
         <section className="card">
           <div className="stat">
             <span className="v">{habit.month_rate}%</span>
-            <span className="k">{Number(habit.month.slice(5))} 月完成率（截至今天）</span>
+            <span className="k">{Number(habit.month.slice(5))} 月{broke ? "守住率" : "完成率"}（截至今天）</span>
           </div>
         </section>
         <section className="card">
           <div className="stat">
             <span className="v">{habit.prev_month_rate}%</span>
-            <span className="k">{prevLabel} 月完成率</span>
+            <span className="k">{prevLabel} 月{broke ? "守住率" : "完成率"}</span>
           </div>
         </section>
       </div>
@@ -200,7 +204,8 @@ export function HabitDetailPage() {
                 type="button"
                 className={`checkbox ${d.done ? "on" : ""} ${habit.is_active ? "" : "disabled"}`}
                 disabled={busy || !habit.is_active}
-                aria-label={d.done ? "取消打卡" : "打卡"}
+                aria-label={habitCheckLabel(kind, d.done)}
+                title={habitCheckLabel(kind, d.done)}
                 onClick={() => void toggle(d.date)}
               />
               <span className="task-title">
@@ -212,7 +217,8 @@ export function HabitDetailPage() {
           <p className="muted small mt-8">超过 7 天的记录不可补卡。</p>
         </section>
         <section className="card">
-          <div className="card-title">{fmtMonth(habit.month)} 打卡热力图</div>
+          <div className="card-title">{fmtMonth(habit.month)} {habitHeatTitle(kind)}</div>
+          <p className="muted small mb-8">{habitHeatLegend(kind)}</p>
           <div className="heat">
             {["一", "二", "三", "四", "五", "六", "日"].map((d) => (
               <div className="hd" key={d}>
@@ -228,7 +234,7 @@ export function HabitDetailPage() {
                   key={c.key}
                   className={`cell ${c.on ? "on" : ""} ${c.today ? "today" : ""} ${c.future ? "future" : ""} ${c.clickable ? "clickable" : ""}`}
                   disabled={!c.clickable || busy}
-                  title={`${c.date}${c.clickable ? "（可补卡）" : ""}`}
+                  title={`${c.date}${c.on ? (broke ? " · 已守住" : " · 已打卡") : c.clickable ? (broke ? " · 点此标记守住" : " · 点此打卡") : ""}`}
                   onClick={() => c.date && c.clickable && void toggle(c.date)}
                 >
                   {c.day}
@@ -257,6 +263,7 @@ export function HabitDetailPage() {
                   frequencyType: next.frequencyType,
                   frequencyTarget: next.frequencyTarget,
                   goalId: next.goalId || null,
+                  kind: next.kind,
                 });
                 setHabit(updated);
                 setForm(null);

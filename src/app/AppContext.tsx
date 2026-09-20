@@ -29,6 +29,7 @@ const DEFAULT_SETTINGS: Settings = {
   reminder_time: "09:00",
   sync_dir: "",
   last_sync_at: null,
+  started_on: null,
 };
 
 const AppContext = createContext<AppState | null>(null);

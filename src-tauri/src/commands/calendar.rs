@@ -85,27 +85,23 @@ pub(crate) fn build_ics(conn: &Connection) -> Result<String, AppError> {
     }
 
     let mut hstmt = conn.prepare(
-        "SELECT id, title, frequency_type FROM habits WHERE is_active = 1 ORDER BY created_at, id",
+        "SELECT h.id, h.title FROM habits h
+         WHERE h.is_active = 1
+           AND NOT EXISTS (
+             SELECT 1 FROM habit_logs l
+             WHERE l.habit_id = h.id AND l.date = ?1 AND l.done = 1
+           )
+         ORDER BY h.created_at, h.id",
     )?;
     let habits = hstmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
+        .query_map([format_date(today)], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    for (id, title, freq) in habits {
-        let rrule = if freq == "weekly" {
-            "RRULE:FREQ=WEEKLY;COUNT=12"
-        } else {
-            "RRULE:FREQ=DAILY;COUNT=30"
-        };
+    for (id, title) in habits {
         body.push_str(&format!(
-            "BEGIN:VEVENT\r\nUID:habit-{id}@lifeplanner.local\r\nDTSTAMP:{stamp}\r\nDTSTART;VALUE=DATE:{}\r\n{}\r\nSUMMARY:{}\r\nEND:VEVENT\r\n",
+            "BEGIN:VEVENT\r\nUID:habit-{id}@lifeplanner.local\r\nDTSTAMP:{stamp}\r\nDTSTART;VALUE=DATE:{}\r\nSUMMARY:{}\r\nEND:VEVENT\r\n",
             ics_date(today),
-            rrule,
             ics_escape(&format!("习惯：{title}")),
         ));
     }
@@ -246,7 +242,7 @@ pub fn fire_due_reminders(db: State<'_, Db>) -> Result<ReminderEvent, AppError> 
         let mut bits = Vec::new();
         if !undone_habits.is_empty() {
             bits.push(format!(
-                "未打卡习惯：{}",
+                "今天还没标记：{}",
                 undone_habits.into_iter().take(4).collect::<Vec<_>>().join("、")
             ));
         }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { GOAL_TITLE_MAX, GOAL_WHY_MAX, LEVEL_LABEL, type GoalLevel } from "../../shared/constants";
 import type { Area, Goal } from "../../shared/types";
 import { Modal } from "../../ui/Modal";
+import { Select } from "../../ui/Select";
 
 export type GoalFormState = {
   id?: string;
@@ -51,17 +52,12 @@ export function GoalFormModal({
       </div>
       <div className="field">
         <label htmlFor="gf-area">维度</label>
-        <select
+        <Select
           id="gf-area"
           value={draft.areaId}
-          onChange={(e) => setDraft({ ...draft, areaId: e.target.value })}
-        >
-          {areas.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+          options={areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color }))}
+          onChange={(areaId) => setDraft({ ...draft, areaId })}
+        />
       </div>
       <div className="field">
         <label htmlFor="gf-why">为什么重要（必填）</label>
@@ -76,7 +72,7 @@ export function GoalFormModal({
       <div className="field">
         <label htmlFor="gf-period">周期</label>
         <input id="gf-period" type="text" value={draft.periodLabel} disabled />
-        <div className="hint">按自然{unit}划分，落在上级周期内。年度目标可不挂人生目标。</div>
+        <div className="hint">按自然{unit}划分，落在上级周期内。周目标可以直接挂年度，季、月可选。</div>
       </div>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>

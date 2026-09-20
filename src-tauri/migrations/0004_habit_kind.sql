@@ -1,0 +1,1 @@
+ALTER TABLE habits ADD COLUMN kind TEXT NOT NULL DEFAULT 'form';

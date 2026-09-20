@@ -6,6 +6,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0001_init", include_str!("../../migrations/0001_init.sql")),
     ("0002_complete", include_str!("../../migrations/0002_complete.sql")),
     ("0003_notes", include_str!("../../migrations/0003_notes.sql")),
+    ("0004_habit_kind", include_str!("../../migrations/0004_habit_kind.sql")),
+    ("0005_weekly_next_tasks", include_str!("../../migrations/0005_weekly_next_tasks.sql")),
 ];
 
 pub fn run(conn: &Connection) -> Result<(), AppError> {

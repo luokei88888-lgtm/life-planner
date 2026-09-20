@@ -50,3 +50,16 @@ pub fn import_json(app: AppHandle, db: State<'_, Db>, payload: String) -> Result
         })
     })
 }
+
+#[tauri::command]
+pub fn factory_reset(app: AppHandle, db: State<'_, Db>) -> Result<BackupResult, AppError> {
+    let dir = data_dir(&app)?;
+    db::with_conn(&db, |conn| {
+        let snap = backup::factory_reset(conn, &dir)?;
+        Ok(BackupResult {
+            file_name: snap.file_name,
+            last_backup_at: snap.last_backup_at,
+            settings: settings::load(conn)?,
+        })
+    })
+}

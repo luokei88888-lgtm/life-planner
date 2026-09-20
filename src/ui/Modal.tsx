@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 export function Modal({
   children,
   onClose,
@@ -5,11 +7,25 @@ export function Modal({
   children: React.ReactNode;
   onClose: () => void;
 }) {
+  const downOnMask = useRef(false);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   return (
     <div
       className="modal-mask"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+      onPointerDown={(event) => {
+        downOnMask.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget && downOnMask.current) onClose();
+        downOnMask.current = false;
       }}
     >
       <div className="modal" role="dialog" aria-modal="true">

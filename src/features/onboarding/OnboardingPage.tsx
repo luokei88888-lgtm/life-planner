@@ -4,13 +4,16 @@ import { api, ApiError } from "../../lib/api";
 import {
   GOAL_TITLE_MAX,
   GOAL_WHY_MAX,
+  HABIT_KIND_HINT,
+  HABIT_KIND_LABEL,
   HABIT_TITLE_MAX,
+  HabitKind,
   TASK_TITLE_MAX,
 } from "../../shared/constants";
-import { isoDate, monthOf, quarterOf } from "../../shared/time";
 import { useApp } from "../../app/AppContext";
+import { Select } from "../../ui/Select";
 
-const STEPS = ["开始", "维度打分", "年度目标", "拆解到本周", "第一个任务", "第一个习惯", "完成"];
+const STEPS = ["开始", "维度打分", "年度目标", "第一个任务", "第一个习惯", "完成"];
 export const SKIP_ONBOARDING_KEY = "life-planner.skip-onboarding";
 
 type Draft = {
@@ -18,11 +21,9 @@ type Draft = {
   areaId: string;
   title: string;
   why: string;
-  q: string;
-  m: string;
-  w: string;
   task: string;
   habit: string;
+  habitKind: "form" | "break";
   freq: "daily" | "weekly";
   habitArea: string;
 };
@@ -30,7 +31,6 @@ type Draft = {
 export function OnboardingPage() {
   const { areas, notify, applySettings, reload } = useApp();
   const navigate = useNavigate();
-  const today = isoDate();
   const lowest = useMemo(
     () => [...areas].sort((a, b) => (a.score ?? 0) - (b.score ?? 0))[0],
     [areas],
@@ -42,17 +42,20 @@ export function OnboardingPage() {
     areaId: lowest?.id ?? "",
     title: "",
     why: "",
-    q: "",
-    m: "",
-    w: "",
     task: "",
     habit: "",
+    habitKind: HabitKind.Form,
     freq: "daily",
     habitArea: lowest?.id ?? "",
   }));
 
-  function skip() {
+  async function skip() {
     sessionStorage.setItem(SKIP_ONBOARDING_KEY, "1");
+    try {
+      applySettings(await api.markStarted());
+    } catch (e) {
+      notify(e instanceof ApiError ? e.message : "未能记下开始使用日");
+    }
     notify("可以随时在设置里重新运行引导");
     navigate("/", { replace: true });
   }
@@ -73,13 +76,14 @@ export function OnboardingPage() {
         title: draft.title.trim() || null,
         why: draft.why.trim() || null,
         areaId: draft.areaId || lowest?.id || null,
-        quarterTitle: draft.q.trim() || null,
-        monthTitle: draft.m.trim() || null,
-        weekTitle: draft.w.trim() || null,
+        quarterTitle: null,
+        monthTitle: null,
+        weekTitle: null,
         taskTitle: draft.task.trim() || null,
         habitTitle: draft.habit.trim() || null,
         habitFrequency: draft.freq,
         habitAreaId: draft.habitArea || draft.areaId || lowest?.id || null,
+        habitKind: draft.habitKind,
       });
       applySettings(result.settings);
       await reload();
@@ -94,7 +98,7 @@ export function OnboardingPage() {
   }
 
   const nav = (backable: boolean, nextLabel = "下一步") => (
-    <div className="row between mt-24">
+    <div className="onboard-foot">
       {backable ? (
         <button type="button" className="btn" onClick={() => setStep((n) => Math.max(0, n - 1))}>
           上一步
@@ -118,8 +122,8 @@ export function OnboardingPage() {
           <h2 style={{ margin: "0 0 8px" }}>花 5 分钟，建立你的第一个闭环</h2>
           <p className="muted">
             人生规划不是列一堆愿望，而是一条能转起来的链：
-            <b>看清现状 → 定一个年度目标 → 拆到本周 → 每天做 → 周末复盘</b>
-            。接下来 5 步带你把这条链搭起来，随时可以跳过。
+            <b>看清现状 → 定一个年度目标 → 写一件这周能做的事 → 每天做 → 周末复盘</b>
+            。接下来带你把这条链搭起来，随时可以跳过。
           </p>
           {nav(false, "开始")}
         </>
@@ -159,17 +163,12 @@ export function OnboardingPage() {
           <p className="muted">建议从分数最低、或者你最想改善的维度开始。只定一个。</p>
           <div className="field">
             <label htmlFor="ob-area">维度</label>
-            <select
+            <Select
               id="ob-area"
               value={draft.areaId}
-              onChange={(e) => setDraft({ ...draft, areaId: e.target.value })}
-            >
-              {areas.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+              options={areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color }))}
+              onChange={(areaId) => setDraft({ ...draft, areaId })}
+            />
           </div>
           <div className="field">
             <label htmlFor="ob-title">目标</label>
@@ -203,52 +202,12 @@ export function OnboardingPage() {
     case 3:
       body = (
         <>
-          <h2 style={{ margin: "0 0 8px" }}>把它拆到本周</h2>
+          <h2 style={{ margin: "0 0 8px" }}>写一件这周能做的事</h2>
           <p className="muted">
-            年度目标「{draft.title || "…"}」在这个季度、这个月、这一周分别要推进什么？
+            {draft.title.trim()
+              ? `挂在年度目标「${draft.title.trim()}」下。没有周目标也可以先做，以后想拆再拆。`
+              : "今天或明天能做的一件具体的事。没有年度目标就先记成未关联任务。"}
           </p>
-          <div className="field">
-            <label htmlFor="ob-q">本季度（Q{quarterOf(today)}）</label>
-            <input
-              id="ob-q"
-              type="text"
-              maxLength={GOAL_TITLE_MAX}
-              value={draft.q}
-              placeholder="例如：建立每周运动 3 次的习惯"
-              onChange={(e) => setDraft({ ...draft, q: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="ob-m">本月（{Number(monthOf(today).slice(5))} 月）</label>
-            <input
-              id="ob-m"
-              type="text"
-              maxLength={GOAL_TITLE_MAX}
-              value={draft.m}
-              placeholder="例如：9 月累计运动 12 次"
-              onChange={(e) => setDraft({ ...draft, m: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="ob-w">本周</label>
-            <input
-              id="ob-w"
-              type="text"
-              maxLength={GOAL_TITLE_MAX}
-              value={draft.w}
-              placeholder="例如：本周运动 3 次"
-              onChange={(e) => setDraft({ ...draft, w: e.target.value })}
-            />
-          </div>
-          {nav(true)}
-        </>
-      );
-      break;
-    case 4:
-      body = (
-        <>
-          <h2 style={{ margin: "0 0 8px" }}>给本周目标加一个任务</h2>
-          <p className="muted">周目标「{draft.w || "…"}」下，今天或明天能做的一件具体的事。</p>
           <div className="field">
             <label htmlFor="ob-task">任务</label>
             <input
@@ -264,11 +223,31 @@ export function OnboardingPage() {
         </>
       );
       break;
-    case 5:
+    case 4:
       body = (
         <>
           <h2 style={{ margin: "0 0 8px" }}>建一个习惯</h2>
-          <p className="muted">一个每天或每周固定做的小事，越小越好。</p>
+          <p className="muted">可以是要养成的小事，也可以是要戒掉的小事。勾选都表示今天成功。</p>
+          <div className="field">
+            <span className="label-text">类型</span>
+            <div className="row wrap">
+              <button
+                type="button"
+                className={`chip ${draft.habitKind === HabitKind.Form ? "on" : ""}`}
+                onClick={() => setDraft({ ...draft, habitKind: HabitKind.Form })}
+              >
+                {HABIT_KIND_LABEL.form}
+              </button>
+              <button
+                type="button"
+                className={`chip ${draft.habitKind === HabitKind.Break ? "on" : ""}`}
+                onClick={() => setDraft({ ...draft, habitKind: HabitKind.Break })}
+              >
+                {HABIT_KIND_LABEL.break}
+              </button>
+            </div>
+            <div className="hint">{HABIT_KIND_HINT[draft.habitKind]}</div>
+          </div>
           <div className="field">
             <label htmlFor="ob-habit">习惯</label>
             <input
@@ -276,34 +255,32 @@ export function OnboardingPage() {
               type="text"
               maxLength={HABIT_TITLE_MAX}
               value={draft.habit}
-              placeholder="例如：睡前阅读 15 分钟"
+              placeholder={
+                draft.habitKind === HabitKind.Break ? "例如：饭后不碰手机" : "例如：睡前阅读 15 分钟"
+              }
               onChange={(e) => setDraft({ ...draft, habit: e.target.value })}
             />
           </div>
           <div className="field">
             <label htmlFor="ob-freq">频率</label>
-            <select
+            <Select
               id="ob-freq"
               value={draft.freq}
-              onChange={(e) => setDraft({ ...draft, freq: e.target.value as Draft["freq"] })}
-            >
-              <option value="daily">每天</option>
-              <option value="weekly">每周 3 次</option>
-            </select>
+              options={[
+                { value: "daily", label: "每天" },
+                { value: "weekly", label: "每周 3 次" },
+              ]}
+              onChange={(freq) => setDraft({ ...draft, freq: freq as Draft["freq"] })}
+            />
           </div>
           <div className="field">
             <label htmlFor="ob-habit-area">维度</label>
-            <select
+            <Select
               id="ob-habit-area"
               value={draft.habitArea}
-              onChange={(e) => setDraft({ ...draft, habitArea: e.target.value })}
-            >
-              {areas.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+              options={areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color }))}
+              onChange={(habitArea) => setDraft({ ...draft, habitArea })}
+            />
           </div>
           {nav(true, "完成")}
         </>
@@ -320,16 +297,14 @@ export function OnboardingPage() {
             <div className="kv">
               <span className="k">年度目标</span>
               <span>{draft.title.trim() || "（未填写）"}</span>
-              <span className="k">本周目标</span>
-              <span>{draft.w.trim() || "（未填写）"}</span>
               <span className="k">第一个任务</span>
               <span>{draft.task.trim() || "（未填写）"}</span>
               <span className="k">第一个习惯</span>
               <span>{draft.habit.trim() || "（未填写）"}</span>
             </div>
           </div>
-          <div className="row mt-24" style={{ justifyContent: "flex-end" }}>
-            <button type="button" className="btn" onClick={() => setStep(5)} disabled={busy}>
+          <div className="onboard-foot">
+            <button type="button" className="btn" onClick={() => setStep(4)} disabled={busy}>
               上一步
             </button>
             <button type="button" className="btn primary" onClick={() => void finish()} disabled={busy}>

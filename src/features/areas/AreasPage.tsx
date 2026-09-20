@@ -5,6 +5,7 @@ import { AREA_COUNT_MAX, AREA_NAME_MAX, AREA_PALETTE } from "../../shared/consta
 import type { Area } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
+import { Select } from "../../ui/Select";
 import { RadarChart } from "./RadarChart";
 
 type FormState = { id?: string; name: string; color: string };
@@ -17,6 +18,7 @@ export function AreasPage() {
   const [scoreOpen, setScoreOpen] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
   const [draftScores, setDraftScores] = useState<Record<string, number>>({});
+  const [hoverId, setHoverId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,12 +142,18 @@ export function AreasPage() {
         </section>
       ) : (
       <div className="grid-2">
-        <section className="card" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <RadarChart areas={areas} size={300} />
+        <section className="card radar-well">
+          <RadarChart areas={areas} highlightId={hoverId} onHover={setHoverId} />
+          <p className="muted small radar-hint">拖动鼠标环视仪盘，悬停维度会点亮对应辐条。</p>
         </section>
         <div className="area-list">
           {areas.map((a) => (
-            <div className="area-card" key={a.id}>
+            <div
+              className={`area-card ${hoverId === a.id ? "on" : ""}`}
+              key={a.id}
+              onPointerEnter={() => setHoverId(a.id)}
+              onPointerLeave={() => setHoverId(null)}
+            >
               <span className="bar" style={{ background: a.color }} />
               <div style={{ flex: 1 }}>
                 <div className="row between">
@@ -228,17 +236,12 @@ export function AreasPage() {
           </div>
           <div className="field">
             <label htmlFor="af-color">颜色</label>
-            <select
+            <Select
               id="af-color"
               value={form.color}
-              onChange={(e) => setForm({ ...form, color: e.target.value })}
-            >
-              {AREA_PALETTE.map((c) => (
-                <option key={c} value={c} style={{ color: c }}>
-                  {c}
-                </option>
-              ))}
-            </select>
+              options={AREA_PALETTE.map((c) => ({ value: c, label: c, swatch: c }))}
+              onChange={(color) => setForm({ ...form, color })}
+            />
           </div>
           <div className="modal-foot" style={{ justifyContent: "space-between" }}>
             {form.id ? (

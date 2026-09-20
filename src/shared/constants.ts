@@ -7,8 +7,8 @@ export const ErrorCode = Object.fromEntries(
 export type ErrorCode = (typeof catalog.errorCodes)[number];
 
 export const THEMES: { id: (typeof catalog.themes)[number]; name: string; desc: string }[] = [
-  { id: "dark", name: "墨夜 · 天文钟", desc: "深色墨底、黄铜点缀、衬线刻字。" },
-  { id: "ink", name: "新中式文房", desc: "宣纸底、朱砂一点、宋体直角。" },
+  { id: "dark", name: "墨夜 · 星钟", desc: "深色墨底、黄铜点缀、衬线刻字。" },
+  { id: "ink", name: "宣纸 · 朱砂", desc: "宣纸底、朱砂一点、宋体直角。" },
   { id: "moss", name: "苔径 · 松烟", desc: "墨绿底、青苔与松烟。" },
   { id: "dusk", name: "暮色 · 绛霞", desc: "暮紫底、暖绛点缀。" },
   { id: "snow", name: "素雪 · 青瓷", desc: "冷白底、青瓷色描边。" },
@@ -34,7 +34,54 @@ export const TASK_TITLE_MAX = catalog.taskTitleMax;
 export const FOCUS_LIMIT = catalog.focusLimitPerDay;
 export const HABIT_TITLE_MAX = catalog.habitTitleMax;
 export const HABIT_BACKFILL_DAYS = catalog.habitBackfillDays;
+export const HABIT_KINDS = catalog.habitKinds;
+export type HabitKind = (typeof HABIT_KINDS)[number];
+export const HabitKind = {
+  Form: "form",
+  Break: "break",
+} as const satisfies Record<string, HabitKind>;
+export const HABIT_KIND_LABEL: Record<HabitKind, string> = {
+  form: "养成",
+  break: "戒除",
+};
+export const HABIT_KIND_HINT: Record<HabitKind, string> = {
+  form: "勾选表示今天做到了。空白只是还没记，不是失败。",
+  break: "勾选表示今天忍住了、没有做这件事。空白只是还没记，不是破功。",
+};
+
+export function habitKindOf(value: string | null | undefined): HabitKind {
+  return value === HabitKind.Break ? HabitKind.Break : HabitKind.Form;
+}
+
+export function habitKindLabel(value: string | null | undefined): string {
+  return HABIT_KIND_LABEL[habitKindOf(value)];
+}
+
+export function habitCheckLabel(kind: HabitKind, done: boolean) {
+  if (kind === HabitKind.Break) {
+    return done ? "取消今日守住" : "今日守住";
+  }
+  return done ? "取消今日打卡" : "今日打卡";
+}
+
+export function habitToggleError(kind: HabitKind) {
+  return kind === HabitKind.Break ? "记录守住失败" : "打卡失败";
+}
+
+export function habitHeatTitle(kind: HabitKind) {
+  return kind === HabitKind.Break ? "守住热力图" : "打卡热力图";
+}
+
+export function habitHeatLegend(kind: HabitKind) {
+  return kind === HabitKind.Break
+    ? "点亮 = 这一天守住了。空白 = 还没标记，不是自动记成破功。"
+    : "点亮 = 这一天做到了。空白 = 还没标记。";
+}
+
 export const REVIEW_ANSWER_MAX = catalog.reviewAnswerMax;
+export const REVIEW_NEXT_TASK_MAX = catalog.reviewNextTaskMax;
+export const REVIEW_NOTES_ASIDE_MAX = 8;
+export const WEEK_ADVANCING_MAX = ACTIVE_LIMITS.week;
 export const NOTE_BODY_MAX = catalog.noteBodyMax;
 export const NOTE_PAGE_SIZE = catalog.notePageSize;
 export const KEEP_BACKUP_COUNTS = catalog.keepBackupCounts;
@@ -83,6 +130,21 @@ export const NAV = [
 export function childLevel(level: GoalLevel): GoalLevel | null {
   const i = GOAL_LEVELS.indexOf(level);
   return i >= 0 && i < GOAL_LEVELS.length - 1 ? GOAL_LEVELS[i + 1] : null;
+}
+
+export function childLevelsOf(parent: GoalLevel): GoalLevel[] {
+  switch (parent) {
+    case "life":
+      return ["year"];
+    case "year":
+      return ["quarter", "month", "week"];
+    case "quarter":
+      return ["month", "week"];
+    case "month":
+      return ["week"];
+    default:
+      return [];
+  }
 }
 
 export function parentRequired(level: GoalLevel): boolean {

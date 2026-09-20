@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import {
@@ -17,6 +17,34 @@ import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
 import { GoalDrawer } from "./GoalDrawer";
 import { GoalFormModal, type GoalFormState } from "./GoalFormModal";
+import { Select } from "../../ui/Select";
+
+const TREE_EXPANDED_KEY = "life-planner.goal-tree-expanded.v2";
+
+function defaultExpandedIds(goals: Goal[], year: number) {
+  const ids = new Set<string>();
+  for (const g of goals) {
+    if (g.level === "life") ids.add(g.id);
+    if (g.level === "year" && g.period_start.startsWith(String(year))) ids.add(g.id);
+  }
+  return ids;
+}
+
+function readStoredExpanded(): Set<string> | null {
+  try {
+    const raw = localStorage.getItem(TREE_EXPANDED_KEY);
+    if (raw == null) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return new Set(parsed.filter((id): id is string => typeof id === "string"));
+  } catch {
+    return null;
+  }
+}
+
+function persistExpanded(ids: Set<string>) {
+  localStorage.setItem(TREE_EXPANDED_KEY, JSON.stringify([...ids]));
+}
 
 export function GoalsPage() {
   const { areas, settings, notify } = useApp();
@@ -28,6 +56,8 @@ export function GoalsPage() {
   const [areaId, setAreaId] = useState(params.get("area") ?? "");
   const [statuses, setStatuses] = useState<Set<GoalStatus>>(new Set(["active", "paused"]));
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [treeReady, setTreeReady] = useState(false);
+  const yearRef = useRef(currentYear);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draftProgress, setDraftProgress] = useState<number | null>(null);
   const [form, setForm] = useState<GoalFormState | null>(null);
@@ -49,7 +79,8 @@ export function GoalsPage() {
         const list = await api.listGoals();
         if (cancelled) return;
         setGoals(list);
-        setExpanded(new Set(list.map((g) => g.id)));
+        setExpanded(readStoredExpanded() ?? defaultExpandedIds(list, currentYear));
+        setTreeReady(true);
       } catch (e) {
         notify(e instanceof ApiError ? e.message : "无法加载目标");
       }
@@ -58,6 +89,23 @@ export function GoalsPage() {
       cancelled = true;
     };
   }, [notify]);
+
+  useEffect(() => {
+    if (!treeReady) return;
+    persistExpanded(expanded);
+  }, [expanded, treeReady]);
+
+  useEffect(() => {
+    if (!treeReady || yearRef.current === year) return;
+    yearRef.current = year;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const g of goals) {
+        if (g.level === "year" && g.period_start.startsWith(String(year))) next.add(g.id);
+      }
+      return next;
+    });
+  }, [year, goals, treeReady]);
 
   useEffect(() => {
     const fromQuery = params.get("area") ?? "";
@@ -166,15 +214,15 @@ export function GoalsPage() {
     });
   }
 
-  function openCreate(parent: Goal | null) {
+  function openCreate(parent: Goal | null, level?: GoalLevel) {
     if (parent && parent.status !== "active") {
       notify("上级目标不是进行中状态，先恢复它");
       return;
     }
-    const level: GoalLevel = parent ? childLevel(parent.level) ?? "week" : "life";
+    const nextLevel: GoalLevel = level ?? (parent ? childLevel(parent.level) ?? "week" : "life");
     setForm({
       parent,
-      level,
+      level: nextLevel,
       title: "",
       why: "",
       areaId: parent?.area_id || areas[0]?.id || "",
@@ -272,6 +320,11 @@ export function GoalsPage() {
             </div>
           </span>
           <span className="g-pct">{goal.progress}%</span>
+          {goal.week_task_total > 0 ? (
+            <span className="g-week">
+              本周 {goal.week_task_done}/{goal.week_task_total}
+            </span>
+          ) : null}
           <span className="g-count">{allKids.length ? `${allKids.length} 子目标` : ""}</span>
           {next ? (
             <button
@@ -302,7 +355,7 @@ export function GoalsPage() {
       <div className="page-head">
         <div>
           <h1 className="page-title">目标</h1>
-          <p className="page-sub">人生 → 年度 → 季度 → 月度 → 周，每个目标都要回答「为什么重要」。</p>
+          <p className="page-sub">年度和本周是主路径；季、月可选。每个目标都要回答「为什么重要」。</p>
         </div>
         <div className="head-actions">
           <button className="btn" disabled={busy || areas.length === 0} onClick={() => openCreate(null)}>
@@ -319,32 +372,27 @@ export function GoalsPage() {
         </div>
       ) : null}
       <div className="row wrap mb-16">
-        <select value={year} onChange={(e) => setYear(Number(e.target.value))} style={{ width: 110 }}>
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-        <select
-          value={areaId}
+        <Select
+          style={{ width: 110 }}
+          value={String(year)}
+          options={years.map((y) => ({ value: String(y), label: String(y) }))}
+          onChange={(next) => setYear(Number(next))}
+        />
+        <Select
           style={{ width: 140 }}
-          onChange={(e) => {
-            const value = e.target.value;
+          value={areaId}
+          options={[
+            { value: "", label: "全部维度" },
+            ...areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color })),
+          ]}
+          onChange={(value) => {
             setAreaId(value);
             const next = new URLSearchParams(params);
             if (value) next.set("area", value);
             else next.delete("area");
             setParams(next, { replace: true });
           }}
-        >
-          <option value="">全部维度</option>
-          {areas.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+        />
         <span className="muted small" style={{ marginLeft: 8 }}>
           状态
         </span>
@@ -383,7 +431,7 @@ export function GoalsPage() {
           }}
           onSelect={(id) => void openGoal(id)}
           onEdit={() => openEdit(selected)}
-          onAddChild={() => openCreate(selected)}
+          onAddChild={(level) => openCreate(selected, level)}
           onDelete={() =>
             setConfirm({
               title: "删除目标",
@@ -406,6 +454,9 @@ export function GoalsPage() {
                 notify(e instanceof ApiError ? e.message : "进度保存失败");
               }
             })();
+          }}
+          onTasksMutated={async () => {
+            setGoals(await api.listGoals());
           }}
         />
       ) : null}

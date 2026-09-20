@@ -30,6 +30,20 @@ pub fn parent_required(level: &str) -> bool {
     matches!(level, "quarter" | "month" | "week")
 }
 
+pub fn allowed_parent_levels(level: &str) -> &'static [&'static str] {
+    match level {
+        "year" => &["life"],
+        "quarter" => &["year"],
+        "month" => &["quarter", "year"],
+        "week" => &["month", "quarter", "year"],
+        _ => &[],
+    }
+}
+
+pub fn is_allowed_parent(child: &str, parent: &str) -> bool {
+    allowed_parent_levels(child).iter().any(|item| *item == parent)
+}
+
 pub fn last_day_of_month(year: i32, month: u32) -> NaiveDate {
     if month == 12 {
         NaiveDate::from_ymd_opt(year, 12, 31).expect("12-31")

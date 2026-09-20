@@ -5,13 +5,15 @@ import { GOAL_STATUSES, REVIEW_ANSWER_MAX, STATUS_LABEL, type GoalStatus } from 
 import type { YearlyReviewView } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
+import { Select } from "../../ui/Select";
 import { YearSummary } from "./YearSummary";
 import { PeriodNotes } from "../notes/PeriodNotes";
+import { useReviewNoteQuote } from "./useReviewNoteQuote";
 
 export function YearlyReviewPage() {
   const { year } = useParams<{ year: string }>();
   const navigate = useNavigate();
-  const { notify } = useApp();
+  const { notify, reload } = useApp();
   const [view, setView] = useState<YearlyReviewView | null>(null);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -19,8 +21,18 @@ export function YearlyReviewPage() {
   const [insight, setInsight] = useState("");
   const [nextYear, setNextYear] = useState("");
   const [draftProgress, setDraftProgress] = useState<Record<string, number>>({});
+  const [areaDraft, setAreaDraft] = useState<Record<string, number>>({});
   const [statusModal, setStatusModal] = useState<{ id: string; to: "paused" | "dropped" } | null>(null);
   const [statusReason, setStatusReason] = useState("");
+  const { onQuote, focusProps } = useReviewNoteQuote(
+    { progress, insight, nextYear },
+    (key, value) => {
+      if (key === "progress") setProgress(value);
+      else if (key === "insight") setInsight(value);
+      else if (key === "nextYear") setNextYear(value);
+    },
+    notify,
+  );
 
   useEffect(() => {
     if (!year) return;
@@ -29,7 +41,7 @@ export function YearlyReviewPage() {
       try {
         const next = await api.getYearlyReview(year);
         if (cancelled) return;
-        apply(next);
+        apply(next, true);
         setStep(1);
       } catch (e) {
         if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载年复盘");
@@ -40,7 +52,7 @@ export function YearlyReviewPage() {
     };
   }, [year, notify]);
 
-  function apply(next: YearlyReviewView) {
+  function apply(next: YearlyReviewView, resetAreas = false) {
     setView(next);
     setProgress(next.q_progress);
     setInsight(next.q_insight);
@@ -48,19 +60,47 @@ export function YearlyReviewPage() {
     const drafts: Record<string, number> = {};
     for (const g of next.goals) drafts[g.id] = g.progress;
     setDraftProgress(drafts);
+    if (resetAreas) {
+      const scores: Record<string, number> = {};
+      for (const a of next.snapshot.area_scores ?? []) scores[a.id] = a.score;
+      setAreaDraft(scores);
+    }
   }
 
-  async function persist(kind: "draft" | "submit") {
+  function answersReady() {
+    return Boolean(progress.trim() && insight.trim() && nextYear.trim());
+  }
+
+  async function persist(kind: "draft" | "submit", applyScores = false) {
     if (!year) return false;
     setBusy(true);
     try {
+      const scores = (view?.snapshot.area_scores ?? []).map((a) => ({
+        id: a.id,
+        score: areaDraft[a.id] ?? a.score,
+      }));
       const next =
         kind === "submit"
-          ? await api.submitYearlyReview({ year, progress, insight, nextYear })
+          ? await api.submitYearlyReview({
+              year,
+              progress,
+              insight,
+              nextYear,
+              scores: applyScores ? scores : undefined,
+            })
           : await api.saveYearlyDraft({ year, progress, insight, nextYear });
       apply(next);
-      notify(kind === "submit" ? "年复盘已提交" : "草稿已保存");
-      if (kind === "submit") navigate("/reviews");
+      notify(
+        kind === "submit"
+          ? applyScores
+            ? "年复盘已提交，维度分数已更新"
+            : "年复盘已提交"
+          : "草稿已保存",
+      );
+      if (kind === "submit") {
+        await reload();
+        navigate("/reviews");
+      }
       return true;
     } catch (e) {
       notify(e instanceof ApiError ? e.message : "保存失败");
@@ -102,7 +142,7 @@ export function YearlyReviewPage() {
             <p className="page-sub">提交于 {view.submitted_at?.slice(0, 10) ?? ""}</p>
           </div>
         </div>
-        <YearSummary snap={view.snapshot} />
+        <YearSummary snap={view.snapshot} frozen />
         <PeriodNotes notes={view.notes} />
         <section className="card mt-16 stack">
           <div>
@@ -130,7 +170,7 @@ export function YearlyReviewPage() {
             ← 返回复盘
           </Link>
           <h1 className="page-title">年复盘 · {view.year}</h1>
-          <p className="page-sub">对照年度与人生目标，再回答三个问题</p>
+          <p className="page-sub">对照年度与人生目标、回答三个问题，最后可选择重打维度分</p>
         </div>
       </div>
       {!hasMonthRecord ? (
@@ -152,6 +192,10 @@ export function YearlyReviewPage() {
         <div className="sep" />
         <div className={`step ${step === 3 ? "on" : ""}`}>
           <span className="n">3</span>三个问题
+        </div>
+        <div className="sep" />
+        <div className={`step ${step === 4 ? "on" : ""}`}>
+          <span className="n">4</span>维度还准吗
         </div>
       </div>
 
@@ -179,12 +223,13 @@ export function YearlyReviewPage() {
                     <div style={{ flex: 1 }}>
                       <div className="row between">
                         <span className="strong">{g.title}</span>
-                        <select
+                        <Select
                           style={{ width: 110 }}
                           value={g.status}
                           disabled={busy}
-                          onChange={(e) => {
-                            const to = e.target.value as GoalStatus;
+                          options={GOAL_STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))}
+                          onChange={(next) => {
+                            const to = next as GoalStatus;
                             if (to === g.status) return;
                             if (to === "paused" || to === "dropped") {
                               setStatusModal({ id: g.id, to });
@@ -193,13 +238,7 @@ export function YearlyReviewPage() {
                             }
                             void changeStatus(g.id, to);
                           }}
-                        >
-                          {GOAL_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {STATUS_LABEL[s]}
-                            </option>
-                          ))}
-                        </select>
+                        />
                       </div>
                       <div className="row mt-8">
                         <input
@@ -252,6 +291,7 @@ export function YearlyReviewPage() {
 
       {step === 3 ? (
         <>
+          <div className="review-qa-layout">
           <section className="card stack qa">
             <div>
               <label htmlFor="yr-progress">1. 本年目标推进情况如何？</label>
@@ -260,6 +300,7 @@ export function YearlyReviewPage() {
                 maxLength={REVIEW_ANSWER_MAX}
                 value={progress}
                 onChange={(e) => setProgress(e.target.value)}
+                {...focusProps("progress")}
               />
             </div>
             <div>
@@ -270,6 +311,7 @@ export function YearlyReviewPage() {
                 placeholder="关于自己、关于方法、关于方向"
                 value={insight}
                 onChange={(e) => setInsight(e.target.value)}
+                {...focusProps("insight")}
               />
             </div>
             <div>
@@ -279,9 +321,12 @@ export function YearlyReviewPage() {
                 maxLength={REVIEW_ANSWER_MAX}
                 value={nextYear}
                 onChange={(e) => setNextYear(e.target.value)}
+                {...focusProps("nextYear")}
               />
             </div>
           </section>
+          <PeriodNotes notes={view.notes} quoteable onQuote={onQuote} />
+          </div>
           <div className="row mt-16 between">
             <button
               className="btn"
@@ -298,8 +343,67 @@ export function YearlyReviewPage() {
               <button className="btn" disabled={busy} onClick={() => void persist("draft")}>
                 保存草稿
               </button>
-              <button className="btn primary" disabled={busy} onClick={() => void persist("submit")}>
-                提交复盘
+              <button
+                className="btn primary"
+                disabled={busy}
+                onClick={() => {
+                  if (!answersReady()) {
+                    notify("三个问题都要回答");
+                    return;
+                  }
+                  setStep(4);
+                }}
+              >
+                下一步：核对维度
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {step === 4 ? (
+        <>
+          <section className="card stack">
+            <div>
+              <div className="strong">这些分数还代表现在的你吗？</div>
+              <p className="muted small">
+                可以拖动滑杆更新人生之轮。跳过则只提交复盘，不改雷达。草稿不会改分数。
+              </p>
+            </div>
+            {(view.snapshot.area_scores ?? []).map((a) => (
+              <div className="slider-row review-score-row" key={a.id}>
+                <span>
+                  <span className="dot" style={{ background: a.color, marginRight: 6 }} />
+                  {a.name}
+                </span>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={areaDraft[a.id] ?? a.score}
+                  disabled={busy}
+                  onChange={(e) =>
+                    setAreaDraft((prev) => ({ ...prev, [a.id]: Number(e.target.value) }))
+                  }
+                />
+                <span className="val">{areaDraft[a.id] ?? a.score}</span>
+              </div>
+            ))}
+          </section>
+          <div className="row mt-16 between">
+            <button className="btn" disabled={busy} onClick={() => setStep(3)}>
+              上一步
+            </button>
+            <div className="btn-group">
+              <button className="btn" disabled={busy} onClick={() => void persist("submit", false)}>
+                跳过，直接提交
+              </button>
+              <button
+                className="btn primary"
+                disabled={busy}
+                onClick={() => void persist("submit", true)}
+              >
+                提交并更新分数
               </button>
             </div>
           </div>

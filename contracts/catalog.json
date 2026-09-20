@@ -29,7 +29,9 @@
   "focusLimitPerDay": 3,
   "habitTitleMax": 40,
   "habitBackfillDays": 7,
+  "habitKinds": ["form", "break"],
   "reviewAnswerMax": 2000,
+  "reviewNextTaskMax": 3,
   "noteKinds": ["insight", "diary", "vent"],
   "noteBodyMax": 5000,
   "notePageSize": 40,
@@ -53,6 +55,7 @@
     "HABIT_INACTIVE",
     "BACKFILL_WINDOW",
     "REVIEW_LOCKED",
+    "REVIEW_NEXT_TASKS_DONE",
     "BACKUP_FAILED",
     "IMPORT_INVALID",
     "UNKNOWN"

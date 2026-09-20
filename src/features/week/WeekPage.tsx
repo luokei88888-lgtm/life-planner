@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { TASK_TITLE_MAX } from "../../shared/constants";
+import { LEVEL_LABEL, TASK_TITLE_MAX } from "../../shared/constants";
 import {
   addDays,
   dayOptions,
@@ -16,7 +16,9 @@ import {
 import type { Goal, Task, WeekPlan } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
+import { Select } from "../../ui/Select";
 import { TaskRow } from "./TaskRow";
+import { isTaskAncestorGoal, isTaskWeekGoal, advancingGoals, taskGoalSelectOptions } from "./taskGoals";
 
 export function WeekPage() {
   const { areas, settings, notify } = useApp();
@@ -71,22 +73,44 @@ export function WeekPage() {
   }, [weekStart, notify, today]);
 
   const weekGoals = useMemo(
-    () =>
-      goals.filter(
-        (g) => g.level === "week" && g.period_start === weekStart && g.status !== "dropped",
-      ),
+    () => goals.filter((g) => isTaskWeekGoal(g, weekStart)),
     [goals, weekStart],
   );
+  const ancestorGoals = useMemo(
+    () => goals.filter((g) => isTaskAncestorGoal(g, weekStart)),
+    [goals, weekStart],
+  );
+  const advancing = useMemo(() => advancingGoals(goals, weekStart), [goals, weekStart]);
   const tasks = plan?.tasks ?? [];
   const byGoal = (id: string) => tasks.filter((t) => t.goal_id === id);
   const unlinked = tasks.filter((t) => !t.goal_id);
+  const groupedGoals = useMemo(() => {
+    const hanging = ancestorGoals.filter((g) => tasks.some((t) => t.goal_id === g.id));
+    return [...weekGoals, ...hanging];
+  }, [weekGoals, ancestorGoals, tasks]);
   const stray = tasks.filter(
-    (t) => t.goal_id && !weekGoals.some((g) => g.id === t.goal_id),
+    (t) => t.goal_id && !groupedGoals.some((g) => g.id === t.goal_id),
+  );
+  const addGoalOptions = useMemo(
+    () => taskGoalSelectOptions(goals, weekStart, areas, goalId),
+    [goals, weekStart, areas, goalId],
+  );
+  const editGoalOptions = useMemo(
+    () => taskGoalSelectOptions(goals, weekStart, areas, editGoalId),
+    [goals, weekStart, areas, editGoalId],
   );
   const prev = plan?.prev_unfinished ?? [];
   const showCarry = weekStart >= thisWeek && prev.length > 0;
   const heading =
     offset === 0 ? "本周计划" : offset === -1 ? "上周" : offset === 1 ? "下周计划" : "周计划";
+
+  useEffect(() => {
+    const ok =
+      !goalId ||
+      weekGoals.some((g) => g.id === goalId && g.status === "active") ||
+      ancestorGoals.some((g) => g.id === goalId);
+    if (!ok) setGoalId("");
+  }, [weekStart, weekGoals, ancestorGoals, goalId]);
 
   async function apply(fn: () => Promise<WeekPlan>, ok?: string) {
     setBusy(true);
@@ -154,7 +178,8 @@ export function WeekPage() {
       {showCarry ? (
         <div className="banner mb-16">
           <div>
-            {weekLabel(addDays(weekStart, -7))} 有 <b>{prev.length}</b> 个任务未完成：
+            {weekLabel(addDays(weekStart, -7))} 有 <b>{prev.length}</b>{" "}
+            个任务未完成（仍是原来的任务，不是复盘里新写的）：
             {prev.map((t) => t.title).join("、")}
           </div>
           <button
@@ -173,16 +198,21 @@ export function WeekPage() {
         <div className="stack">
           <section className="card">
             <div className="card-title">
-              本周目标 <Link className="muted small" to="/goals">管理</Link>
+              本周在推进 <Link className="muted small" to="/goals">管理</Link>
             </div>
-            {weekGoals.length ? (
-              weekGoals.map((g) => {
+            {advancing.length ? (
+              advancing.map((g) => {
                 const color = areas.find((a) => a.id === g.area_id)?.color ?? "var(--accent)";
                 return (
                   <Link className="goal-card mb-8" key={g.id} to="/goals">
                     <span className="bar" style={{ background: color }} />
                     <div className="body">
-                      <div className="title">{g.title}</div>
+                      <div className="title">
+                        {g.level !== "week" ? (
+                          <span className="tag level">{LEVEL_LABEL[g.level]}</span>
+                        ) : null}{" "}
+                        {g.title}
+                      </div>
                       <div className="row mt-8">
                         <div style={{ flex: 1 }}>
                           <div className="progress thin">
@@ -190,13 +220,20 @@ export function WeekPage() {
                           </div>
                         </div>
                         <span className="muted small">{g.progress}%</span>
+                        {g.week_task_total > 0 ? (
+                          <span className="muted small">
+                            本周 {g.week_task_done}/{g.week_task_total}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </Link>
                 );
               })
             ) : (
-              <p className="empty">这一周还没有周目标。到目标页从月度目标下拆一个出来。</p>
+              <p className="empty">
+                不必先建周目标。右侧直接加任务，可挂覆盖本周的月 / 季 / 年目标；也可以先到目标页立一条年度目标。
+              </p>
             )}
           </section>
           <section className="card">
@@ -232,35 +269,27 @@ export function WeekPage() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
-              <select value={goalId} onChange={(e) => setGoalId(e.target.value)}>
-                <option value="">不关联目标</option>
-                {weekGoals
-                  .filter((g) => g.status === "active")
-                  .map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.title}
-                    </option>
-                  ))}
-              </select>
-              <select
-                value={plannedDate}
-                onChange={(e) => setPlannedDate(e.target.value)}
+              <Select
+                value={goalId}
+                options={addGoalOptions}
+                onChange={setGoalId}
+              />
+              <Select
                 style={{ width: 130 }}
-              >
-                <option value="">不定日期</option>
-                {days.map((d) => (
-                  <option key={d} value={d}>
-                    {fmtMd(d)} {weekdayLabel(d)}
-                  </option>
-                ))}
-              </select>
+                value={plannedDate}
+                options={[
+                  { value: "", label: "不定日期" },
+                  ...days.map((d) => ({ value: d, label: `${fmtMd(d)} ${weekdayLabel(d)}` })),
+                ]}
+                onChange={setPlannedDate}
+              />
               <button className="btn primary" disabled={busy} type="submit">
                 添加
               </button>
             </form>
           )}
 
-          {weekGoals.map((g) => {
+          {groupedGoals.map((g) => {
             const ts = byGoal(g.id);
             const color = areas.find((a) => a.id === g.area_id)?.color ?? "var(--accent)";
             return (
@@ -268,6 +297,9 @@ export function WeekPage() {
                 <div className="task-group-title">
                   <span className="dot" style={{ background: color }} />
                   {g.title}
+                  {g.level !== "week" ? (
+                    <span className="tag level">{LEVEL_LABEL[g.level]}</span>
+                  ) : null}
                   <span className="muted small">
                     {ts.filter((t) => t.status === "done").length}/{ts.length}
                   </span>
@@ -356,28 +388,25 @@ export function WeekPage() {
           </div>
           <div className="field">
             <label htmlFor="tm-goal">关联目标</label>
-            <select id="tm-goal" value={editGoalId} onChange={(e) => setEditGoalId(e.target.value)}>
-              <option value="">不关联</option>
-              {weekGoals
-                .filter((g) => g.status === "active")
-                .map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.title}
-                  </option>
-                ))}
-            </select>
-            <div className="hint">任务只能挂在周目标下；想挂到月度目标，请先拆一个周目标。</div>
+            <Select
+              id="tm-goal"
+              value={editGoalId}
+              options={editGoalOptions}
+              onChange={setEditGoalId}
+            />
+            <div className="hint">可以不挂，或挂本周目标、覆盖本周的月 / 季 / 年目标。</div>
           </div>
           <div className="field">
             <label htmlFor="tm-date">计划日期</label>
-            <select id="tm-date" value={editDate} onChange={(e) => setEditDate(e.target.value)}>
-              <option value="">不定日期</option>
-              {days.map((d) => (
-                <option key={d} value={d}>
-                  {fmtMd(d)} {weekdayLabel(d)}
-                </option>
-              ))}
-            </select>
+            <Select
+              id="tm-date"
+              value={editDate}
+              options={[
+                { value: "", label: "不定日期" },
+                ...days.map((d) => ({ value: d, label: `${fmtMd(d)} ${weekdayLabel(d)}` })),
+              ]}
+              onChange={setEditDate}
+            />
           </div>
           <div className="modal-foot" style={{ justifyContent: "space-between" }}>
             <div className="btn-group">

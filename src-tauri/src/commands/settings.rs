@@ -1,9 +1,9 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
 use crate::db::{self, Db};
-use crate::domain;
+use crate::domain::{self, format_date, today};
 use crate::error::{AppError, SETTINGS_INVALID};
 
 #[derive(Serialize)]
@@ -18,6 +18,7 @@ pub struct SettingsMap {
     pub reminder_time: String,
     pub sync_dir: String,
     pub last_sync_at: Option<String>,
+    pub started_on: Option<String>,
 }
 
 pub(crate) fn load(conn: &Connection) -> Result<SettingsMap, AppError> {
@@ -60,6 +61,10 @@ pub(crate) fn load(conn: &Connection) -> Result<SettingsMap, AppError> {
             .get("last_sync_at")
             .cloned()
             .filter(|v| !v.is_empty()),
+        started_on: map
+            .get("started_on")
+            .cloned()
+            .filter(|v| domain::parse_date(v).is_ok()),
     })
 }
 
@@ -70,6 +75,57 @@ pub(crate) fn upsert(conn: &Connection, key: &str, value: &str) -> Result<(), Ap
         [key, value],
     )?;
     Ok(())
+}
+
+fn read_started_on(conn: &Connection) -> Result<Option<chrono::NaiveDate>, AppError> {
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'started_on'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(value
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .and_then(|v| domain::parse_date(v).ok()))
+}
+
+fn infer_started_on(conn: &Connection) -> Result<chrono::NaiveDate, AppError> {
+    let inferred: Option<String> = conn.query_row(
+        "SELECT MIN(day) FROM (
+            SELECT substr(created_at, 1, 10) AS day FROM goals
+            UNION ALL SELECT substr(created_at, 1, 10) FROM habits
+            UNION ALL SELECT substr(created_at, 1, 10) FROM notes
+            UNION ALL SELECT week_start FROM tasks
+         ) WHERE day IS NOT NULL AND length(day) = 10",
+        [],
+        |row| row.get(0),
+    )?;
+    if let Some(raw) = inferred {
+        if let Ok(date) = domain::parse_date(&raw) {
+            return Ok(date);
+        }
+    }
+    Ok(today())
+}
+
+pub(crate) fn ensure_started_on(conn: &Connection) -> Result<chrono::NaiveDate, AppError> {
+    if let Some(date) = read_started_on(conn)? {
+        return Ok(date);
+    }
+    let date = infer_started_on(conn)?;
+    upsert(conn, "started_on", &format_date(date))?;
+    Ok(date)
+}
+
+#[tauri::command]
+pub fn mark_started(db: State<'_, Db>) -> Result<SettingsMap, AppError> {
+    db::with_conn(&db, |conn| {
+        ensure_started_on(conn)?;
+        load(conn)
+    })
 }
 
 #[tauri::command]

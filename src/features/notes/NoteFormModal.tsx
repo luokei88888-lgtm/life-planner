@@ -3,6 +3,7 @@ import { LEVEL_LABEL, NOTE_BODY_MAX, NOTE_KIND_LABEL, NOTE_KINDS, type NoteKind 
 import type { Area, Goal, Note } from "../../shared/types";
 import { isoDate } from "../../shared/time";
 import { Modal } from "../../ui/Modal";
+import { Select } from "../../ui/Select";
 
 export type NoteFormState = {
   id?: string;
@@ -113,28 +114,28 @@ export function NoteFormModal({
       </div>
       <div className="field">
         <label htmlFor="nf-area">维度（可选）</label>
-        <select
+        <Select
           id="nf-area"
           value={draft.areaId}
           disabled={lockGoal}
-          onChange={(e) => setDraft({ ...draft, areaId: e.target.value, goalId: "" })}
-        >
-          <option value="">不挂维度</option>
-          {areas.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: "", label: "不挂维度" },
+            ...areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color })),
+          ]}
+          onChange={(areaId) => setDraft({ ...draft, areaId, goalId: "" })}
+        />
       </div>
       <div className="field">
         <label htmlFor="nf-goal">关联目标（可选）</label>
-        <select
+        <Select
           id="nf-goal"
           value={draft.goalId}
           disabled={lockGoal}
-          onChange={(e) => {
-            const goalId = e.target.value;
+          options={[
+            { value: "", label: "不挂目标" },
+            ...areaGoals.map((g) => ({ value: g.id, label: `${LEVEL_LABEL[g.level]} · ${g.title}` })),
+          ]}
+          onChange={(goalId) => {
             const goal = goals.find((g) => g.id === goalId);
             setDraft({
               ...draft,
@@ -142,14 +143,7 @@ export function NoteFormModal({
               areaId: goal ? goal.area_id : draft.areaId,
             });
           }}
-        >
-          <option value="">不挂目标</option>
-          {areaGoals.map((g) => (
-            <option key={g.id} value={g.id}>
-              {LEVEL_LABEL[g.level]} · {g.title}
-            </option>
-          ))}
-        </select>
+        />
       </div>
       <div className="modal-foot">
         <button className="btn" type="button" onClick={onClose}>

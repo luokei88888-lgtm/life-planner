@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import { IMPORT_JSON_MAX, KEEP_BACKUP_COUNTS, THEMES } from "../../shared/constants";
 import { isoDate } from "../../shared/time";
@@ -7,14 +7,18 @@ import type { ThemeId } from "../../shared/constants";
 import type { Health } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
+import { Select } from "../../ui/Select";
 import { SKIP_ONBOARDING_KEY } from "../onboarding/OnboardingPage";
 
 export function SettingsPage() {
   const { settings, setTheme, applySettings, notify, reload } = useApp();
+  const navigate = useNavigate();
   const current = THEMES.find((t) => t.id === settings.theme);
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [confirmImport, setConfirmImport] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetPhrase, setResetPhrase] = useState("");
   const [health, setHealth] = useState<Health | null>(null);
 
   useEffect(() => {
@@ -100,40 +104,36 @@ export function SettingsPage() {
               <div>主题</div>
               <div className="desc">{current?.desc}</div>
             </div>
-            <select
-              style={{ width: 160 }}
+            <Select
+              style={{ width: 180 }}
               value={settings.theme}
               disabled={busy}
-              onChange={(e) => {
-                void setTheme(e.target.value as ThemeId);
+              options={THEMES.map((t) => ({ value: t.id, label: t.name }))}
+              onChange={(next) => {
+                void setTheme(next as ThemeId);
               }}
-            >
-              {THEMES.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
           <div className="setting-row">
             <div>
               <div>每周起始日</div>
               <div className="desc">影响周计划和周复盘的划分</div>
             </div>
-            <select
+            <Select
               style={{ width: 120 }}
-              value={settings.week_starts_on}
+              value={String(settings.week_starts_on)}
               disabled={busy}
-              onChange={(e) => {
+              options={[
+                { value: "1", label: "周一" },
+                { value: "0", label: "周日" },
+              ]}
+              onChange={(next) => {
                 void run(async () => {
-                  applySettings(await api.setWeekStartsOn(Number(e.target.value)));
+                  applySettings(await api.setWeekStartsOn(Number(next)));
                   notify("周起始日已保存");
                 });
               }}
-            >
-              <option value={1}>周一</option>
-              <option value={0}>周日</option>
-            </select>
+            />
           </div>
           <div className="setting-row">
             <div>
@@ -151,7 +151,7 @@ export function SettingsPage() {
           <div className="setting-row">
             <div>
               <div>每日提醒</div>
-              <div className="desc">应用运行时，到点提醒未打卡习惯和今日待办</div>
+              <div className="desc">应用运行时，到点提醒今天还没标记的习惯和今日待办</div>
             </div>
             <button
               type="button"
@@ -212,22 +212,17 @@ export function SettingsPage() {
               <div>保留备份份数</div>
               <div className="desc">超过后自动删除最旧的</div>
             </div>
-            <select
+            <Select
               style={{ width: 100 }}
-              value={settings.keep_backups}
+              value={String(settings.keep_backups)}
               disabled={busy}
-              onChange={(e) => {
+              options={KEEP_BACKUP_COUNTS.map((n) => ({ value: String(n), label: String(n) }))}
+              onChange={(next) => {
                 void run(async () => {
-                  applySettings(await api.setKeepBackups(Number(e.target.value)));
+                  applySettings(await api.setKeepBackups(Number(next)));
                 });
               }}
-            >
-              {KEEP_BACKUP_COUNTS.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+            />
           </div>
           <div className="setting-row">
             <div>
@@ -259,6 +254,23 @@ export function SettingsPage() {
               onClick={() => setConfirmImport(true)}
             >
               导入
+            </button>
+          </div>
+          <div className="setting-row">
+            <div>
+              <div>恢复出厂</div>
+              <div className="desc">清空人生数据并回到新手引导。会先自动备份，备份文件仍可导入找回。</div>
+            </div>
+            <button
+              type="button"
+              className="btn sm danger"
+              disabled={busy}
+              onClick={() => {
+                setResetPhrase("");
+                setConfirmReset(true);
+              }}
+            >
+              恢复出厂
             </button>
           </div>
         </section>
@@ -322,7 +334,7 @@ export function SettingsPage() {
         <div className="setting-row">
           <div>
             <div>导出日历</div>
-            <div className="desc">生成本周任务与习惯的 ICS 文件，可导入系统日历</div>
+              <div className="desc">一次性快照：本周任务 + 今天还没勾的习惯。导入后不会随软件自动更新。</div>
           </div>
           <button
             type="button"
@@ -366,6 +378,61 @@ export function SettingsPage() {
             </button>
             <button type="button" className="btn primary" onClick={pickImportFile}>
               选择文件并导入
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+      {confirmReset ? (
+        <Modal
+          onClose={() => {
+            if (busy) return;
+            setConfirmReset(false);
+            setResetPhrase("");
+          }}
+        >
+          <h3>恢复出厂设置</h3>
+          <p className="muted small mb-16">
+            目标、任务、习惯、随记、复盘和自定义维度都会删除，主题等设置回到初始值。系统会先自动备份；输入「清空」确认。
+          </p>
+          <div className="field">
+            <label htmlFor="factory-reset-phrase">请输入「清空」</label>
+            <input
+              id="factory-reset-phrase"
+              value={resetPhrase}
+              autoComplete="off"
+              onChange={(e) => setResetPhrase(e.target.value)}
+            />
+          </div>
+          <div className="modal-foot">
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => {
+                setConfirmReset(false);
+                setResetPhrase("");
+              }}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn danger"
+              disabled={busy || resetPhrase.trim() !== "清空"}
+              onClick={() => {
+                void run(async () => {
+                  const result = await api.factoryReset();
+                  sessionStorage.removeItem(SKIP_ONBOARDING_KEY);
+                  applySettings(result.settings);
+                  await reload();
+                  setConfirmReset(false);
+                  setResetPhrase("");
+                  notify(`已恢复出厂，当前数据备份为 ${result.file_name}`);
+                  navigate("/onboarding");
+                });
+              }}
+            >
+              确认清空
             </button>
           </div>
         </Modal>

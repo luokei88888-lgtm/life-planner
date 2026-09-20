@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { NAV, THEMES, type ThemeId } from "../../shared/constants";
+import { Select } from "../../ui/Select";
 import { useApp } from "../AppContext";
 
 export function AppShell() {
@@ -52,7 +53,16 @@ export function AppShell() {
             <ThemePicker />
           </div>
         </aside>
-        <main className="main" key={location.pathname}>
+        <main
+          className="main"
+          key={location.pathname}
+          onPointerMove={(event) => {
+            const node = event.currentTarget;
+            const box = node.getBoundingClientRect();
+            node.style.setProperty("--px", String((event.clientX - box.left) / Math.max(1, box.width)));
+            node.style.setProperty("--py", String((event.clientY - box.top) / Math.max(1, box.height)));
+          }}
+        >
           {error ? <div className="banner warn">{error}</div> : null}
           {reminder ? (
             <div className="banner warn">
@@ -75,59 +85,18 @@ export function AppShell() {
 
 function ThemePicker() {
   const { settings, setTheme } = useApp();
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const current = THEMES.find((t) => t.id === settings.theme) ?? THEMES[0];
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointer(event: MouseEvent) {
-      if (root.current && !root.current.contains(event.target as Node)) setOpen(false);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
   return (
-    <div className="theme-picker" ref={root}>
+    <div className="theme-picker">
       <div className="muted small">主题</div>
-      <button
-        type="button"
-        className="theme-current"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span>{current.name}</span>
-        <span aria-hidden="true">▾</span>
-      </button>
-      {open ? (
-        <ul className="theme-menu" role="listbox" aria-label="主题">
-          {THEMES.map((theme) => (
-            <li key={theme.id} role="none">
-              <button
-                type="button"
-                role="option"
-                aria-selected={theme.id === settings.theme}
-                className={theme.id === settings.theme ? "on" : undefined}
-                onClick={() => {
-                  void setTheme(theme.id as ThemeId);
-                  setOpen(false);
-                }}
-              >
-                {theme.name}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <Select
+        aria-label="主题"
+        value={settings.theme}
+        placement="up"
+        options={THEMES.map((theme) => ({ value: theme.id, label: theme.name }))}
+        onChange={(next) => {
+          void setTheme(next as ThemeId);
+        }}
+      />
     </div>
   );
 }

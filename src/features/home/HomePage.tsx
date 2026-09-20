@@ -1,26 +1,34 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { FOCUS_LIMIT } from "../../shared/constants";
-import { dayOptions, fmtMonth, isoDate, parseIso, weekLabel, weekNo, weekStartOf, weekdayLabel } from "../../shared/time";
+import {
+  FOCUS_LIMIT,
+  HABIT_KIND_LABEL,
+  LEVEL_LABEL,
+  habitCheckLabel,
+  habitKindOf,
+  habitToggleError,
+} from "../../shared/constants";
+import { fmtMonth, isoDate, weekLabel, weekNo, weekStartOf } from "../../shared/time";
 import type { Goal, HabitRow, ReviewList, Task } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { RadarChart } from "../areas/RadarChart";
 import { TaskRow } from "../week/TaskRow";
+import { advancingGoals } from "../week/taskGoals";
 
 export function HomePage() {
   const { areas, settings, notify } = useApp();
-  const [weekGoals, setWeekGoals] = useState<Goal[]>([]);
   const [allGoals, setAllGoals] = useState<Goal[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [locked, setLocked] = useState(false);
   const [habits, setHabits] = useState<HabitRow[]>([]);
   const [reviews, setReviews] = useState<ReviewList | null>(null);
+  const [wheelHover, setWheelHover] = useState<string | null>(null);
   const scored = areas.filter((a) => a.score != null).length;
   const today = isoDate();
   const weekStart = weekStartOf(today, settings.week_starts_on);
-  const days = dayOptions(weekStart);
   const focus = tasks.filter((t) => t.is_focus && t.planned_date === today);
+  const advancing = useMemo(() => advancingGoals(allGoals, weekStart), [allGoals, weekStart]);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,16 +42,13 @@ export function HomePage() {
         ]);
         if (cancelled) return;
         setAllGoals(list);
-        setWeekGoals(
-          list.filter((g) => g.level === "week" && g.period_start === weekStart && g.status !== "dropped"),
-        );
         setTasks(plan.tasks);
         setLocked(plan.locked);
         setHabits(habitList.filter((h) => h.is_active));
         setReviews(reviewList);
       } catch {
         if (!cancelled) {
-          setWeekGoals([]);
+          setAllGoals([]);
           setTasks([]);
           setHabits([]);
           setReviews(null);
@@ -60,6 +65,7 @@ export function HomePage() {
       const plan = await fn();
       setTasks(plan.tasks);
       setLocked(plan.locked);
+      setAllGoals(await api.listGoals());
     } catch (e) {
       notify(e instanceof ApiError ? e.message : "操作失败");
     }
@@ -112,8 +118,45 @@ export function HomePage() {
         </div>
       ) : null}
 
+      {advancing.length ? (
+        <section className="card mb-16">
+          <div className="card-title">
+            本周在推进 <Link className="muted small" to="/week">本周计划</Link>
+          </div>
+          {advancing.map((g) => {
+            const color = areas.find((a) => a.id === g.area_id)?.color ?? "var(--accent)";
+            return (
+              <Link className="goal-card mb-8" key={g.id} to="/goals">
+                <span className="bar" style={{ background: color }} />
+                <div className="body">
+                  <div className="title">
+                    {g.level !== "week" ? (
+                      <span className="tag level">{LEVEL_LABEL[g.level]}</span>
+                    ) : null}{" "}
+                    {g.title}
+                  </div>
+                  <div className="row mt-8">
+                    <div style={{ flex: 1 }}>
+                      <div className="progress thin">
+                        <div style={{ width: `${g.progress}%` }} />
+                      </div>
+                    </div>
+                    <span className="muted small">{g.progress}%</span>
+                    {g.week_task_total > 0 ? (
+                      <span className="muted small">
+                        本周 {g.week_task_done}/{g.week_task_total}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </section>
+      ) : null}
+
       <div className="home-today">
-        <section className="card">
+        <section className="card live-card">
           <div className="card-title">
             今日焦点{" "}
             <span className="count">
@@ -146,7 +189,7 @@ export function HomePage() {
             </Link>
           ) : null}
         </section>
-        <section className="card">
+        <section className="card live-card">
           <div className="card-title">
             今日习惯{" "}
             <span className="count">
@@ -156,25 +199,36 @@ export function HomePage() {
           {habits.length ? (
             habits.map((h) => {
               const area = areas.find((a) => a.id === h.area_id);
+              const kind = habitKindOf(h.kind);
               return (
                 <div className={`task-item ${h.done_today ? "done" : ""}`} key={h.id}>
                   <button
                     type="button"
                     className={`checkbox ${h.done_today ? "on" : ""}`}
-                    aria-label={h.done_today ? "取消今日打卡" : "今日打卡"}
+                    aria-label={habitCheckLabel(kind, h.done_today)}
+                    title={habitCheckLabel(kind, h.done_today)}
                     onClick={() => {
                       void (async () => {
                         try {
                           await api.toggleHabitLog(h.id, today);
                           setHabits((await api.listHabits()).filter((x) => x.is_active));
                         } catch (e) {
-                          notify(e instanceof ApiError ? e.message : "打卡失败");
+                          notify(e instanceof ApiError ? e.message : habitToggleError(kind));
                         }
                       })();
                     }}
                   />
                   <span className="dot" style={{ background: area?.color ?? "var(--muted)" }} />
-                  <span className="task-title">{h.title}</span>
+                  <span className="task-title">
+                    {h.title}
+                    <span className={`tag kind-${kind}`}>{HABIT_KIND_LABEL[kind]}</span>
+                    {h.goal_id ? (
+                      <span className="muted small">
+                        {" "}
+                        · {allGoals.find((g) => g.id === h.goal_id)?.title ?? "目标"}
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="muted small">
                     {h.frequency_type === "daily"
                       ? `连续 ${h.streak_n} ${h.streak_unit}`
@@ -184,7 +238,7 @@ export function HomePage() {
               );
             })
           ) : (
-            <p className="empty">还没有习惯。到「习惯」里新建一个挂在维度下的小事。</p>
+            <p className="empty">还没有习惯。到「习惯」里新建养成或戒除。</p>
           )}
           <Link className="add-line" to="/habits">
             管理习惯
@@ -192,105 +246,25 @@ export function HomePage() {
         </section>
       </div>
 
-      <section className="card home-rhythm">
+      <section className="card home-wheel live-card">
         <div className="card-title">
-          本周节奏 <Link className="muted small" to="/week">本周计划</Link>
+          人生之轮 <Link className="muted small" to="/areas">维度详情</Link>
         </div>
-        <div className="rhythm">
-          {days.map((d) => {
-            const dayTasks = tasks.filter((t) => t.planned_date === d);
-            const done = dayTasks.filter((t) => t.status === "done").length;
-            const isToday = d === today;
-            return (
-              <Link
-                key={d}
-                className={`rhythm-day${isToday ? " today" : ""}${d < today ? " past" : ""}`}
-                to="/week"
-              >
-                <span className="rd-dow">
-                  {weekdayLabel(d)}
-                  {isToday ? " · 今天" : ""}
-                </span>
-                <span className="rd-date">{parseIso(d).getDate()}</span>
-                <span className="rd-tasks">
-                  {dayTasks.length ? (
-                    <>
-                      {done}
-                      <i>/{dayTasks.length} 任务</i>
-                    </>
-                  ) : (
-                    <i>无任务</i>
-                  )}
-                </span>
-                {habits.length ? (
-                  <span className="rd-habits">
-                    {habits.map((h) => {
-                      const on = h.week_dates.includes(d);
-                      const color = areas.find((a) => a.id === h.area_id)?.color;
-                      return (
-                        <span
-                          key={h.id}
-                          className={on ? "on" : ""}
-                          title={h.title}
-                          style={on && color ? { background: color } : undefined}
-                        />
-                      );
-                    })}
-                  </span>
-                ) : null}
-              </Link>
-            );
-          })}
-        </div>
-      </section>
-
-      <div className="home-bottom">
-        <section className="card">
-          <div className="card-title">
-            本周目标{" "}
-            <span className="count">
-              <b>{weekGoals.filter((g) => g.status === "done").length}</b>/{weekGoals.length}
-            </span>
-          </div>
-          {weekGoals.length ? (
-            weekGoals.map((g) => {
-              const color = areas.find((a) => a.id === g.area_id)?.color ?? "var(--accent)";
-              const ts = tasks.filter((t) => t.goal_id === g.id);
-              return (
-                <Link className="goal-card mb-8" key={g.id} to="/goals">
-                  <span className="bar" style={{ background: color }} />
-                  <div className="body">
-                    <div className="title">{g.title}</div>
-                    <div className="row mt-8">
-                      <div style={{ flex: 1 }}>
-                        <div className="progress thin">
-                          <div style={{ width: `${g.progress}%` }} />
-                        </div>
-                      </div>
-                      <span className="muted small">
-                        {g.progress}% · 任务 {ts.filter((t) => t.status === "done").length}/{ts.length}
-                      </span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })
-          ) : (
-            <p className="empty">还没有周目标。请先建立年度目标并逐级拆到本周。</p>
-          )}
-          <Link className="add-line" to="/goals">
-            前往目标
-          </Link>
-        </section>
-        <section className="card">
-          <div className="card-title">
-            人生之轮 <Link className="muted small" to="/areas">维度详情</Link>
-          </div>
-          <div className="wheel-body">
-            <RadarChart areas={areas} size={200} />
-            <div className="wheel-list">
+        <div className="wheel-body">
+          <RadarChart
+            areas={areas}
+            size={280}
+            highlightId={wheelHover}
+            onHover={setWheelHover}
+          />
+          <div className="wheel-list">
             {areas.map((a) => (
-              <div className="wheel-row" key={a.id}>
+              <div
+                className={`wheel-row ${wheelHover === a.id ? "on" : ""}`}
+                key={a.id}
+                onPointerEnter={() => setWheelHover(a.id)}
+                onPointerLeave={() => setWheelHover(null)}
+              >
                 <span className="dot" style={{ background: a.color }} />
                 <span className="name">{a.name}</span>
                 <div className="progress thin">
@@ -299,18 +273,17 @@ export function HomePage() {
                 <span className="score">{a.score ?? "—"}</span>
               </div>
             ))}
-            </div>
           </div>
-          <p className="muted small" style={{ marginTop: 12 }}>
-            已预置 {areas.length} 个维度
-            {scored ? `，其中 ${scored} 个已打分` : "，尚未打分"}
-            {settings.onboarded ? "" : "。也可以从设置里重新运行新手引导。"}
-          </p>
-          <Link className="add-line" to="/areas">
-            前往维度
-          </Link>
-        </section>
-      </div>
+        </div>
+        <p className="muted small" style={{ marginTop: 12 }}>
+          已预置 {areas.length} 个维度
+          {scored ? `，其中 ${scored} 个已打分` : "，尚未打分"}
+          {settings.onboarded ? "" : "。也可以从设置里重新运行新手引导。"}
+        </p>
+        <Link className="add-line" to="/areas">
+          前往维度
+        </Link>
+      </section>
     </>
   );
 }

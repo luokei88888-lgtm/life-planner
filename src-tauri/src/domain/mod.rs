@@ -1,7 +1,7 @@
 mod period;
 
 pub use period::{
-    add_days, format_date, last_day_of_month, parent_level, parent_required, parse_date, period_for,
+    add_days, format_date, last_day_of_month, allowed_parent_levels, is_allowed_parent, parent_level, parent_required, parse_date, period_for,
     today, week_start,
 };
 
@@ -46,7 +46,9 @@ pub struct Catalog {
     pub focus_limit_per_day: i64,
     pub habit_title_max: usize,
     pub habit_backfill_days: i64,
+    pub habit_kinds: Vec<String>,
     pub review_answer_max: usize,
+    pub review_next_task_max: usize,
     pub note_kinds: Vec<String>,
     pub note_body_max: usize,
     pub note_page_size: i64,
@@ -82,8 +84,12 @@ struct CatalogFile {
     habit_title_max: usize,
     #[serde(rename = "habitBackfillDays")]
     habit_backfill_days: i64,
+    #[serde(rename = "habitKinds")]
+    habit_kinds: Vec<String>,
     #[serde(rename = "reviewAnswerMax")]
     review_answer_max: usize,
+    #[serde(rename = "reviewNextTaskMax")]
+    review_next_task_max: usize,
     #[serde(rename = "noteKinds")]
     note_kinds: Vec<String>,
     #[serde(rename = "noteBodyMax")]
@@ -117,7 +123,9 @@ pub fn catalog() -> &'static Catalog {
             focus_limit_per_day: raw.focus_limit_per_day,
             habit_title_max: raw.habit_title_max,
             habit_backfill_days: raw.habit_backfill_days,
+            habit_kinds: raw.habit_kinds,
             review_answer_max: raw.review_answer_max,
+            review_next_task_max: raw.review_next_task_max,
             note_kinds: raw.note_kinds,
             note_body_max: raw.note_body_max,
             note_page_size: raw.note_page_size,
@@ -253,6 +261,19 @@ pub fn normalize_review_answer(text: &str, required: bool) -> Result<String, Str
     Ok(trimmed.to_string())
 }
 
+pub fn is_habit_kind(value: &str) -> bool {
+    catalog().habit_kinds.iter().any(|k| k == value)
+}
+
+pub fn normalize_habit_kind(value: Option<&str>) -> Result<String, String> {
+    let raw = value.map(str::trim).filter(|v| !v.is_empty()).unwrap_or("form");
+    if is_habit_kind(raw) {
+        Ok(raw.to_string())
+    } else {
+        Err("习惯只能是养成或戒除".into())
+    }
+}
+
 pub fn normalize_habit_title(title: &str) -> Result<String, String> {
     let trimmed = title.trim();
     if trimmed.is_empty() {
@@ -277,6 +298,42 @@ pub fn normalize_frequency(freq: &str, target: i64) -> Result<(String, i64), Str
     }
 }
 
+pub fn task_may_attach_goal(
+    level: &str,
+    status: &str,
+    period_start: &str,
+    period_end: &str,
+    week_start: &str,
+) -> Result<(), String> {
+    if status != "active" {
+        return Err("只能关联进行中的目标".into());
+    }
+    let week = parse_date(week_start)?;
+    let start = parse_date(period_start)?;
+    let end = parse_date(period_end)?;
+    match level {
+        "week" => {
+            if start != week {
+                return Err("任务只能挂在同一周的周目标下".into());
+            }
+            Ok(())
+        }
+        "month" | "quarter" | "year" => {
+            if start <= week && week <= end {
+                Ok(())
+            } else {
+                Err("只能挂在时间覆盖本周的月、季或年目标下".into())
+            }
+        }
+        "life" => Err("任务不能直接挂在人生目标下".into()),
+        _ => Err("不能挂在这个层级的目标下".into()),
+    }
+}
+
+pub fn task_goal_level_allowed(level: &str) -> bool {
+    matches!(level, "week" | "month" | "quarter" | "year")
+}
+
 pub fn normalize_task_title(title: &str) -> Result<String, String> {
     let trimmed = title.trim();
     if trimmed.is_empty() {
@@ -286,6 +343,24 @@ pub fn normalize_task_title(title: &str) -> Result<String, String> {
         return Err(format!("标题最多 {} 个字", catalog().task_title_max));
     }
     Ok(trimmed.to_string())
+}
+
+pub fn normalize_review_next_titles(titles: &[String]) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for title in titles {
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        out.push(normalize_task_title(trimmed)?);
+    }
+    if out.len() > catalog().review_next_task_max {
+        return Err(format!(
+            "下周任务最多 {} 条",
+            catalog().review_next_task_max
+        ));
+    }
+    Ok(out)
 }
 
 pub fn normalize_goal_why(why: &str) -> Result<String, String> {
@@ -319,6 +394,14 @@ pub fn level_label(level: &str) -> &'static str {
         "week" => "周",
         _ => "目标",
     }
+}
+
+pub fn allowed_parent_label(level: &str) -> String {
+    allowed_parent_levels(level)
+        .iter()
+        .map(|item| format!("{}目标", level_label(item)))
+        .collect::<Vec<_>>()
+        .join("、")
 }
 
 pub fn can_transition(from: &str, to: &str) -> bool {

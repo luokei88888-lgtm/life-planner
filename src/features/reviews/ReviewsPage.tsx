@@ -51,7 +51,8 @@ export function ReviewsPage() {
 
       {tab === "pending" ? (
         <section className="card">
-          {pending.map((p) => (
+          {pending.length ? (
+            pending.map((p) => (
             <div className="review-item" key={`${p.kind}-${p.key}`}>
               <span className={`tag ${p.kind === "weekly" ? "" : "level"}`}>
                 {p.kind === "weekly" ? "周复盘" : p.kind === "monthly" ? "月复盘" : "年复盘"}
@@ -70,7 +71,10 @@ export function ReviewsPage() {
                 {p.draft ? "继续" : "开始"}
               </Link>
             </div>
-          ))}
+          ))
+          ) : (
+            <p className="empty">没有需要补写的复盘。</p>
+          )}
           {data ? (
             <>
               <div className="review-item">

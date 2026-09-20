@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS: &[(&str, &str)] = &[
     ("sync_dir", ""),
     ("last_reminder_date", ""),
     ("last_sync_at", ""),
+    ("started_on", ""),
 ];
 
 pub fn run(conn: &Connection) -> Result<(), AppError> {

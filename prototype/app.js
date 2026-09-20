@@ -933,8 +933,8 @@ document.addEventListener('mouseup', e => { if (e.target.dataset?.input === 'goa
 
 window.addEventListener('hashchange', () => { state.reviewStep = 1; state.selectedGoal = route().name === 'goals' ? state.selectedGoal : null; render(); });
 const THEMES = [
-  { id: 'dark', name: '墨夜 · 天文钟', desc: '深色墨底、黄铜点缀、衬线刻字。' },
-  { id: 'ink', name: '新中式文房', desc: '宣纸底、朱砂一点、宋体直角。' },
+  { id: 'dark', name: '墨夜 · 星钟', desc: '深色墨底、黄铜点缀、衬线刻字。' },
+  { id: 'ink', name: '宣纸 · 朱砂', desc: '宣纸底、朱砂一点、宋体直角。' },
 ];
 function applyTheme(id) {
   if (!THEMES.some(t => t.id === id)) id = 'dark';

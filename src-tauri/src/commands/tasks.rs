@@ -63,7 +63,8 @@ fn canonical_week(conn: &Connection, raw: &str) -> Result<String, AppError> {
 
 fn is_locked(conn: &Connection, week_start: &str) -> Result<bool, AppError> {
     let n: i64 = conn.query_row(
-        "SELECT COUNT(1) FROM weekly_reviews WHERE week_start = ?1 AND status = 'submitted'",
+        "SELECT COUNT(1) FROM weekly_reviews
+         WHERE week_start = ?1 AND status IN ('submitted', 'skipped')",
         [week_start],
         |row| row.get(0),
     )?;
@@ -85,7 +86,7 @@ fn list_by_week(conn: &Connection, week_start: &str) -> Result<Vec<Task>, AppErr
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-fn list_unfinished(conn: &Connection, week_start: &str) -> Result<Vec<Task>, AppError> {
+pub(crate) fn list_unfinished(conn: &Connection, week_start: &str) -> Result<Vec<Task>, AppError> {
     let mut stmt = conn.prepare(&format!(
         "{TASK_SELECT} WHERE week_start = ?1 AND status = 'todo' ORDER BY sort_order ASC, id ASC"
     ))?;
@@ -120,26 +121,16 @@ fn validate_goal(
     let Some(id) = goal_id.filter(|v| !v.is_empty()) else {
         return Ok(None);
     };
-    let (level, status, period_start): (String, String, String) = conn
+    let (level, status, period_start, period_end): (String, String, String, String) = conn
         .query_row(
-            "SELECT level, status, period_start FROM goals WHERE id = ?1",
+            "SELECT level, status, period_start, period_end FROM goals WHERE id = ?1",
             [id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()?
         .ok_or_else(|| AppError::new(NOT_FOUND, "关联的目标不存在"))?;
-    if level != "week" {
-        return Err(AppError::new(
-            VALIDATION_FAILED,
-            "任务只能挂在周目标下；想挂到月度目标，请先拆一个周目标",
-        ));
-    }
-    if status != "active" {
-        return Err(AppError::new(VALIDATION_FAILED, "只能关联进行中的周目标"));
-    }
-    if period_start != week {
-        return Err(AppError::new(VALIDATION_FAILED, "任务只能挂在同一周的周目标下"));
-    }
+    domain::task_may_attach_goal(&level, &status, &period_start, &period_end, week)
+        .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
     Ok(Some(id.to_string()))
 }
 
@@ -185,7 +176,6 @@ fn next_sort(conn: &Connection, week: &str) -> Result<i64, AppError> {
 }
 
 fn carry_one(conn: &Connection, task: &Task) -> Result<(), AppError> {
-    require_unlocked(conn, &task.week_start)?;
     let start = parse_date(&task.week_start).map_err(|m| AppError::new(VALIDATION_FAILED, m))?;
     let next = format_date(add_days(start, 7));
     require_unlocked(conn, &next)?;
@@ -390,6 +380,19 @@ pub fn carry_task(db: State<'_, Db>, id: String) -> Result<WeekPlan, AppError> {
     })
 }
 
+pub(crate) fn carry_unfinished_from(conn: &Connection, from_week: &str) -> Result<(), AppError> {
+    let from = canonical_week(conn, from_week)?;
+    let dest = format_date(add_days(
+        parse_date(&from).map_err(|message| AppError::new(VALIDATION_FAILED, message))?,
+        7,
+    ));
+    require_unlocked(conn, &dest)?;
+    for task in list_unfinished(conn, &from)? {
+        carry_one(conn, &task)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn carry_unfinished(db: State<'_, Db>, from_week: String) -> Result<WeekPlan, AppError> {
     db::with_conn(&db, |conn| {
@@ -398,12 +401,7 @@ pub fn carry_unfinished(db: State<'_, Db>, from_week: String) -> Result<WeekPlan
             parse_date(&from).map_err(|message| AppError::new(VALIDATION_FAILED, message))?,
             7,
         ));
-        require_unlocked(conn, &from)?;
-        require_unlocked(conn, &dest)?;
-        let unfinished = list_unfinished(conn, &from)?;
-        for task in unfinished {
-            carry_one(conn, &task)?;
-        }
+        carry_unfinished_from(conn, &from)?;
         week_plan(conn, &dest)
     })
 }

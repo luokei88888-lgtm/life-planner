@@ -61,6 +61,7 @@ export const api = {
   setReminderTime: (reminderTime: string) =>
     cmd<Settings>("set_reminder_time", { reminderTime }),
   setSyncDir: (syncDir: string) => cmd<Settings>("set_sync_dir", { syncDir }),
+  markStarted: () => cmd<Settings>("mark_started"),
   pickSyncDir: () => cmd<PathResult>("pick_sync_dir"),
   syncNow: () => cmd<Settings>("sync_now"),
   exportIcs: () => cmd<PathResult>("export_ics"),
@@ -68,6 +69,7 @@ export const api = {
   backupNow: () => cmd<BackupResult>("backup_now"),
   exportJson: () => cmd<string>("export_json"),
   importJson: (payload: string) => cmd<BackupResult>("import_json", { payload }),
+  factoryReset: () => cmd<BackupResult>("factory_reset"),
   listAreas: () => cmd<Area[]>("list_areas"),
   listArchivedAreas: () => cmd<Area[]>("list_archived_areas"),
   createArea: (name: string, color: string) => cmd<Area[]>("create_area", { name, color }),
@@ -135,6 +137,7 @@ export const api = {
     frequencyType: HabitRow["frequency_type"];
     frequencyTarget: number;
     goalId?: string | null;
+    kind: HabitRow["kind"];
   }) =>
     cmd<HabitRow[]>("create_habit", {
       title: input.title,
@@ -142,6 +145,7 @@ export const api = {
       frequencyType: input.frequencyType,
       frequencyTarget: input.frequencyTarget,
       goalId: input.goalId ?? null,
+      kind: input.kind,
     }),
   updateHabit: (input: {
     id: string;
@@ -150,6 +154,7 @@ export const api = {
     frequencyType: HabitRow["frequency_type"];
     frequencyTarget: number;
     goalId?: string | null;
+    kind: HabitRow["kind"];
   }) =>
     cmd<HabitDetail>("update_habit", {
       id: input.id,
@@ -158,6 +163,7 @@ export const api = {
       frequencyType: input.frequencyType,
       frequencyTarget: input.frequencyTarget,
       goalId: input.goalId ?? null,
+      kind: input.kind,
     }),
   setHabitActive: (id: string, active: boolean) =>
     cmd<HabitDetail>("set_habit_active", { id, active }),
@@ -199,6 +205,12 @@ export const api = {
     }),
   skipWeeklyReview: (weekStart: string) =>
     cmd<WeeklyReviewView>("skip_weekly_review", { weekStart }),
+  applyWeeklyNextWeekTasks: (weekStart: string, titles: string[], carryUnfinished = false) =>
+    cmd<WeeklyReviewView>("apply_weekly_next_week_tasks", {
+      weekStart,
+      titles,
+      carryUnfinished,
+    }),
   getMonthlyReview: (month: string) => cmd<MonthlyReviewView>("get_monthly_review", { month }),
   saveMonthlyDraft: (input: {
     month: string;
@@ -217,12 +229,14 @@ export const api = {
     progress: string;
     insight: string;
     nextMonth: string;
+    scores?: { id: string; score: number }[];
   }) =>
     cmd<MonthlyReviewView>("submit_monthly_review", {
       month: input.month,
       qProgress: input.progress,
       qInsight: input.insight,
       qNextMonth: input.nextMonth,
+      scores: input.scores ?? null,
     }),
   getYearlyReview: (year: string) => cmd<YearlyReviewView>("get_yearly_review", { year }),
   saveYearlyDraft: (input: {
@@ -242,12 +256,14 @@ export const api = {
     progress: string;
     insight: string;
     nextYear: string;
+    scores?: { id: string; score: number }[];
   }) =>
     cmd<YearlyReviewView>("submit_yearly_review", {
       year: input.year,
       qProgress: input.progress,
       qInsight: input.insight,
       qNextYear: input.nextYear,
+      scores: input.scores ?? null,
     }),
   completeOnboarding: (payload: {
     scores: { id: string; score: number }[];
@@ -261,6 +277,7 @@ export const api = {
     habitTitle?: string | null;
     habitFrequency?: "daily" | "weekly" | null;
     habitAreaId?: string | null;
+    habitKind?: HabitRow["kind"] | null;
   }) =>
     cmd<OnboardingResult>("complete_onboarding", {
       payload: {
@@ -275,6 +292,7 @@ export const api = {
         habit_title: payload.habitTitle ?? null,
         habit_frequency: payload.habitFrequency ?? null,
         habit_area_id: payload.habitAreaId ?? null,
+        habit_kind: payload.habitKind ?? null,
       },
     }),
   listNotes: (input?: {

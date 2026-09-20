@@ -1,8 +1,10 @@
 import { fmtMd } from "../../shared/time";
 import type { MonthSnapshot } from "../../shared/types";
 import { LineChart } from "./LineChart";
+import { GoalTaskEvidence } from "./GoalTaskEvidence";
+import { ReviewHabitRates } from "./ReviewHabitRates";
 
-export function MonthSummary({ snap }: { snap: MonthSnapshot }) {
+export function MonthSummary({ snap, frozen }: { snap: MonthSnapshot; frozen?: boolean }) {
   const avg = snap.submitted_weeks ? snap.satisfaction_avg : "—";
   return (
     <>
@@ -45,24 +47,34 @@ export function MonthSummary({ snap }: { snap: MonthSnapshot }) {
         <section className="card">
           <div className="card-title">习惯月完成率</div>
           {snap.habit_rates.length ? (
-            snap.habit_rates.map((h) => (
-              <div className="row mb-8" key={h.title}>
-                <span style={{ width: 120 }}>{h.title}</span>
-                <div style={{ flex: 1 }}>
-                  <div className="progress thin">
-                    <div style={{ width: `${h.rate}%` }} />
-                  </div>
-                </div>
-                <span className="muted small" style={{ width: 40, textAlign: "right" }}>
-                  {h.rate}%
-                </span>
-              </div>
-            ))
+            <ReviewHabitRates habits={snap.habit_rates} />
           ) : (
             <div className="empty">没有进行中的习惯。</div>
           )}
         </section>
       </div>
+      <GoalTaskEvidence items={snap.goal_tasks} frozen={frozen} />
+      {snap.area_scores?.length ? (
+        <section className="card mt-16">
+          <div className="card-title">{frozen ? "维度快照" : "当前维度分数"}</div>
+          <div className="area-score-grid">
+            {snap.area_scores.map((a) => (
+              <div className="row mb-8" key={a.id}>
+                <span className="dot" style={{ background: a.color }} />
+                <span style={{ width: 72 }}>{a.name}</span>
+                <div style={{ flex: 1 }}>
+                  <div className="progress thin">
+                    <div style={{ width: `${a.score * 10}%`, background: a.color }} />
+                  </div>
+                </div>
+                <span className="muted small" style={{ width: 28, textAlign: "right" }}>
+                  {a.score}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </>
   );
 }

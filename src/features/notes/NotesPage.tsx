@@ -4,6 +4,7 @@ import { NOTE_KIND_LABEL, NOTE_KINDS, type NoteKind } from "../../shared/constan
 import { fmtMonth, fmtNoteDay } from "../../shared/time";
 import type { Goal, Note } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
+import { Select } from "../../ui/Select";
 import { Modal } from "../../ui/Modal";
 import { NoteCard } from "./NoteCard";
 import { emptyNoteForm, NoteFormModal, noteToForm, type NoteFormState } from "./NoteFormModal";
@@ -162,22 +163,24 @@ export function NotesPage() {
 
       <section className="card mb-16">
         <div className="row wrap" style={{ gap: 10 }}>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ width: 120 }}>
-            <option value="">全部类型</option>
-            {NOTE_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {NOTE_KIND_LABEL[k as NoteKind]}
-              </option>
-            ))}
-          </select>
-          <select value={areaId} onChange={(e) => setAreaId(e.target.value)} style={{ width: 140 }}>
-            <option value="">全部维度</option>
-            {areas.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            style={{ width: 120 }}
+            value={kind}
+            options={[
+              { value: "", label: "全部类型" },
+              ...NOTE_KINDS.map((k) => ({ value: k, label: NOTE_KIND_LABEL[k as NoteKind] })),
+            ]}
+            onChange={setKind}
+          />
+          <Select
+            style={{ width: 140 }}
+            value={areaId}
+            options={[
+              { value: "", label: "全部维度" },
+              ...areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color })),
+            ]}
+            onChange={setAreaId}
+          />
           <input
             type="text"
             placeholder="搜索正文"

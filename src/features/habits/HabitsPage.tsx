@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { habitFreqLabel } from "../../shared/constants";
+import { habitCheckLabel, HABIT_KIND_LABEL, HABIT_KINDS, habitFreqLabel, habitKindOf, habitToggleError, HabitKind } from "../../shared/constants";
 import { addDays, isoDate, weekStartOf } from "../../shared/time";
-import type { Goal, HabitRow } from "../../shared/types";
+import type { Goal, HabitKind as HabitKindId, HabitRow } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { HabitFormModal, type HabitFormState } from "./HabitFormModal";
 
@@ -13,8 +13,10 @@ export function HabitsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<HabitFormState | null>(null);
+  const [filter, setFilter] = useState<"all" | HabitKindId>("all");
   const today = isoDate();
   const weekStart = weekStartOf(today, settings.week_starts_on);
+  const visible = habits.filter((h) => filter === "all" || habitKindOf(h.kind) === filter);
 
   async function reload() {
     setHabits(await api.listHabits());
@@ -39,12 +41,13 @@ export function HabitsPage() {
   }, [notify]);
 
   async function toggle(id: string, date: string) {
+    const kind = habitKindOf(habits.find((h) => h.id === id)?.kind);
     setBusy(true);
     try {
       await api.toggleHabitLog(id, date);
       await reload();
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : "打卡失败");
+      notify(e instanceof ApiError ? e.message : habitToggleError(kind));
     } finally {
       setBusy(false);
     }
@@ -61,6 +64,7 @@ export function HabitsPage() {
           frequencyType: next.frequencyType,
           frequencyTarget: next.frequencyTarget,
           goalId: next.goalId || null,
+          kind: next.kind,
         });
         await reload();
         notify("已保存");
@@ -72,6 +76,7 @@ export function HabitsPage() {
             frequencyType: next.frequencyType,
             frequencyTarget: next.frequencyTarget,
             goalId: next.goalId || null,
+            kind: next.kind,
           }),
         );
         notify("习惯已创建");
@@ -89,7 +94,9 @@ export function HabitsPage() {
       <div className="page-head">
         <div>
           <h1 className="page-title">习惯</h1>
-          <p className="page-sub">每天或每周固定频率的小事。习惯挂在维度下，也可以再挂到具体目标。</p>
+          <p className="page-sub">
+            养成要每天做到，戒除要每天守住。两边都是勾上表示今天成功；空白只是还没记。
+          </p>
         </div>
         <div className="head-actions">
           <button
@@ -98,6 +105,7 @@ export function HabitsPage() {
             onClick={() =>
               setForm({
                 title: "",
+                kind: HabitKind.Form,
                 areaId: areas[0]?.id ?? "",
                 goalId: "",
                 frequencyType: "daily",
@@ -110,10 +118,38 @@ export function HabitsPage() {
         </div>
       </div>
 
+      <div className="row wrap mb-8">
+        <button
+          type="button"
+          className={`chip ${filter === "all" ? "on" : ""}`}
+          onClick={() => setFilter("all")}
+        >
+          全部
+        </button>
+        {HABIT_KINDS.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            className={`chip ${filter === kind ? "on" : ""}`}
+            onClick={() => setFilter(kind)}
+          >
+            {HABIT_KIND_LABEL[kind]}
+          </button>
+        ))}
+      </div>
+
       <section className="card">
         {habits.length ? (
-          habits.map((h) => {
+          visible.length ? (
+          HABIT_KINDS.filter((kind) => filter === "all" || filter === kind).map((kind) => {
+            const rows = habits.filter((h) => habitKindOf(h.kind) === kind);
+            if (!rows.length) return null;
+            return (
+              <div key={kind}>
+                <div className="habit-group">{HABIT_KIND_LABEL[kind]}</div>
+                {rows.map((h) => {
             const area = areas.find((a) => a.id === h.area_id);
+            const kindId = habitKindOf(h.kind);
             return (
               <div className={`habit-row ${h.is_active ? "" : "muted"}`} key={h.id}>
                 <Link className="habit-main" to={`/habits/${h.id}`}>
@@ -121,6 +157,7 @@ export function HabitsPage() {
                   <div className="h-title">
                     <div className="strong">
                       {h.title}
+                      <span className={`tag kind-${kindId}`}>{HABIT_KIND_LABEL[kindId]}</span>
                       {h.is_active ? null : <span className="tag">已停用</span>}
                     </div>
                     <div className="muted small">
@@ -142,20 +179,28 @@ export function HabitsPage() {
                   </span>
                   <span className="muted small habit-stat">
                     连续 {h.streak_n} {h.streak_unit}
+                    {kindId === HabitKind.Break ? "守住" : ""}
                   </span>
                 </Link>
                 <button
                   type="button"
                   className={`checkbox ${h.done_today ? "on" : ""} ${h.is_active ? "" : "disabled"}`}
                   disabled={busy || !h.is_active}
-                  aria-label={h.done_today ? "取消今日打卡" : "今日打卡"}
+                  aria-label={habitCheckLabel(kindId, h.done_today)}
+                  title={habitCheckLabel(kindId, h.done_today)}
                   onClick={() => void toggle(h.id, today)}
                 />
               </div>
             );
+                })}
+              </div>
+            );
           })
+          ) : (
+            <p className="empty">这一类还没有习惯。</p>
+          )
         ) : (
-          <p className="empty">还没有习惯。先建一个挂在某个维度下的小事。</p>
+          <p className="empty">还没有习惯。先建一个养成或戒除的小事。</p>
         )}
       </section>
 

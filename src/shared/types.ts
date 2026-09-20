@@ -1,4 +1,4 @@
-import type { GoalLevel as GoalLevelId, NoteKind, ThemeId } from "./constants";
+import type { GoalLevel as GoalLevelId, HabitKind, NoteKind, ThemeId } from "./constants";
 
 export type Area = {
   id: string;
@@ -21,6 +21,7 @@ export type Settings = {
   reminder_time: string;
   sync_dir: string;
   last_sync_at: string | null;
+  started_on: string | null;
 };
 
 export type Health = {
@@ -48,6 +49,8 @@ export type Goal = {
   updated_at: string;
   child_count: number;
   task_count: number;
+  week_task_total: number;
+  week_task_done: number;
 };
 
 export type GoalHistory = {
@@ -116,10 +119,12 @@ export type WeekPlan = {
 };
 
 export type HabitFrequency = "daily" | "weekly";
+export type { HabitKind };
 
 export type HabitRow = {
   id: string;
   title: string;
+  kind: HabitKind;
   area_id: string;
   goal_id: string | null;
   frequency_type: HabitFrequency;
@@ -141,6 +146,7 @@ export type HabitDay = {
 export type HabitDetail = {
   id: string;
   title: string;
+  kind: HabitKind;
   area_id: string;
   goal_id: string | null;
   frequency_type: HabitFrequency;
@@ -167,6 +173,8 @@ export type CarriedTask = {
 export type SnapHabit = {
   title: string;
   rate: number;
+  kind?: HabitKind;
+  goal_title?: string | null;
 };
 
 export type SnapGoal = {
@@ -190,6 +198,22 @@ export type WeekSat = {
   satisfaction: number;
 };
 
+export type SnapGoalTasks = {
+  id: string;
+  title: string;
+  level: string;
+  color: string;
+  done: number;
+  total: number;
+};
+
+export type SnapArea = {
+  id: string;
+  name: string;
+  color: string;
+  score: number;
+};
+
 export type MonthSnapshot = {
   satisfaction_avg: number;
   habit_rate: number;
@@ -199,6 +223,8 @@ export type MonthSnapshot = {
   habit_rates: SnapHabit[];
   goals_done: number;
   goals_total: number;
+  area_scores?: SnapArea[];
+  goal_tasks?: SnapGoalTasks[];
 };
 
 export type PendingReview = {
@@ -235,6 +261,8 @@ export type WeeklyReviewView = {
   submitted_at: string | null;
   snapshot: WeekSnapshot;
   notes: Note[];
+  next_tasks_created: boolean;
+  unfinished: { id: string; title: string }[];
 };
 
 export type MonthGoal = {
@@ -278,6 +306,8 @@ export type YearSnapshot = {
   goals_done: number;
   goals_total: number;
   life_goals: SnapGoal[];
+  area_scores?: SnapArea[];
+  goal_tasks?: SnapGoalTasks[];
 };
 
 export type YearlyReviewView = {

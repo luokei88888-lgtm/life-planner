@@ -1,5 +1,6 @@
 import { STATUS_LABEL, type GoalStatus } from "../../shared/constants";
 import type { WeekSnapshot } from "../../shared/types";
+import { ReviewHabitRates } from "./ReviewHabitRates";
 
 export function WeekSummary({ snap }: { snap: WeekSnapshot }) {
   const pct =
@@ -38,19 +39,7 @@ export function WeekSummary({ snap }: { snap: WeekSnapshot }) {
         <section className="card">
           <div className="card-title">习惯完成率</div>
           {snap.habits.length ? (
-            snap.habits.map((h) => (
-              <div className="row mb-8" key={h.title}>
-                <span style={{ width: 120 }}>{h.title}</span>
-                <div style={{ flex: 1 }}>
-                  <div className="progress thin">
-                    <div style={{ width: `${h.rate}%` }} />
-                  </div>
-                </div>
-                <span className="muted small" style={{ width: 40, textAlign: "right" }}>
-                  {h.rate}%
-                </span>
-              </div>
-            ))
+            <ReviewHabitRates habits={snap.habits} />
           ) : (
             <div className="empty">本周没有进行中的习惯。</div>
           )}

@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { LEVEL_LABEL, STATUS_LABEL, childLevel, type GoalStatus } from "../../shared/constants";
+import { LEVEL_LABEL, STATUS_LABEL, childLevelsOf, type GoalLevel, type GoalStatus } from "../../shared/constants";
 import type { Area, Goal, GoalTimelineItem, Task } from "../../shared/types";
+import { fmtNoteDay, isoDate, weekStartOf } from "../../shared/time";
 import { useApp } from "../../app/AppContext";
 import { TaskRow } from "../week/TaskRow";
-import { fmtNoteDay } from "../../shared/time";
 import { NoteCard } from "../notes/NoteCard";
 import { emptyNoteForm, NoteFormModal, noteToForm, type NoteFormState } from "../notes/NoteFormModal";
 import { Modal } from "../../ui/Modal";
@@ -25,6 +25,7 @@ export function GoalDrawer({
   onStatus,
   onProgressInput,
   onProgressCommit,
+  onTasksMutated,
 }: {
   goal: Goal;
   parent: Goal | null;
@@ -35,23 +36,28 @@ export function GoalDrawer({
   onClose: () => void;
   onSelect: (id: string) => void;
   onEdit: () => void;
-  onAddChild: () => void;
+  onAddChild: (level: GoalLevel) => void;
   onDelete: () => void;
   onStatus: (to: GoalStatus) => void;
   onProgressInput: (value: number) => void;
   onProgressCommit: (value: number) => void;
+  onTasksMutated?: () => void | Promise<void>;
 }) {
-  const { notify } = useApp();
+  const { notify, settings } = useApp();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [weekLocked, setWeekLocked] = useState(false);
   const [timeline, setTimeline] = useState<GoalTimelineItem[]>([]);
   const [noteForm, setNoteForm] = useState<NoteFormState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<GoalTimelineItem["note"]>(null);
   const [noteBusy, setNoteBusy] = useState(false);
+  const maskDown = useRef(false);
   const terminal = goal.status === "done" || goal.status === "dropped";
-  const next = childLevel(goal.level);
+  const nextLevels = childLevelsOf(goal.level);
   const canDelete = goal.child_count === 0 && goal.task_count === 0 && tasks.length === 0;
   const area = areas.find((a) => a.id === goal.area_id);
+  const thisWeek = weekStartOf(isoDate(), settings.week_starts_on);
+  const thisWeekTasks = tasks.filter((t) => t.week_start === thisWeek);
+  const earlierTasks = tasks.filter((t) => t.week_start !== thisWeek);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +75,7 @@ export function GoalDrawer({
   }, [goal.id, notify]);
 
   useEffect(() => {
-    if (goal.level !== "week") {
+    if (goal.level === "life") {
       setTasks([]);
       setWeekLocked(false);
       return;
@@ -77,10 +83,8 @@ export function GoalDrawer({
     let cancelled = false;
     (async () => {
       try {
-        const [list, plan] = await Promise.all([
-          api.listGoalTasks(goal.id),
-          api.listWeekPlan(goal.period_start),
-        ]);
+        const list = await api.listGoalTasks(goal.id);
+        const plan = await api.listWeekPlan(thisWeek);
         if (cancelled) return;
         setTasks(list);
         setWeekLocked(plan.locked);
@@ -91,12 +95,13 @@ export function GoalDrawer({
     return () => {
       cancelled = true;
     };
-  }, [goal.id, goal.level, goal.period_start, notify]);
+  }, [goal.id, goal.level, thisWeek, notify]);
 
   async function mutateTask(fn: () => Promise<unknown>) {
     try {
       await fn();
       setTasks(await api.listGoalTasks(goal.id));
+      await onTasksMutated?.();
     } catch (e) {
       notify(e instanceof ApiError ? e.message : "操作失败");
     }
@@ -147,7 +152,16 @@ export function GoalDrawer({
 
   return (
     <>
-      <div className="drawer-mask" onClick={onClose} />
+      <div
+        className="drawer-mask"
+        onPointerDown={(event) => {
+          maskDown.current = event.target === event.currentTarget;
+        }}
+        onClick={(event) => {
+          if (event.target === event.currentTarget && maskDown.current) onClose();
+          maskDown.current = false;
+        }}
+      />
       <aside className="drawer">
         <div className="drawer-head">
           <div>
@@ -199,7 +213,12 @@ export function GoalDrawer({
         <div className="mt-16">
           <div className="row between">
             <span className="strong">进度 {progress}%</span>
-            {terminal ? null : <span className="muted small">拖动调整</span>}
+            <span className="muted small">
+              {terminal ? null : "拖动是判断"}
+              {thisWeekTasks.length
+                ? `${terminal ? "" : " · "}本周 ${thisWeekTasks.filter((t) => t.status === "done").length}/${thisWeekTasks.length} 是执行`
+                : null}
+            </span>
           </div>
           <input
             type="range"
@@ -251,15 +270,22 @@ export function GoalDrawer({
             </button>
           ) : null}
         </div>
-        {next ? (
+        {nextLevels.length ? (
           <div className="mt-24">
             <div className="row between mb-8">
-              <span className="strong">
-                {LEVEL_LABEL[next]}目标（{children.length}）
-              </span>
-              <button className="btn sm" disabled={busy} onClick={onAddChild}>
-                + 新建
-              </button>
+              <span className="strong">子目标（{children.length}）</span>
+            </div>
+            <div className="row wrap mb-8">
+              {nextLevels.map((level) => (
+                <button
+                  key={level}
+                  className="btn sm"
+                  disabled={busy}
+                  onClick={() => onAddChild(level)}
+                >
+                  + {LEVEL_LABEL[level]}
+                </button>
+              ))}
             </div>
             {children.length ? (
               children.map((k) => {
@@ -268,8 +294,14 @@ export function GoalDrawer({
                   <button key={k.id} className="task-row" onClick={() => onSelect(k.id)}>
                     <span className="dot" style={{ background: color }} />
                     <span className="task-title">{k.title}</span>
+                    <span className={`tag level`}>{LEVEL_LABEL[k.level]}</span>
                     <span className={`tag ${k.status}`}>{STATUS_LABEL[k.status]}</span>
-                    <span className="muted small">{k.progress}%</span>
+                    <span className="muted small">
+                      {k.progress}%
+                      {k.week_task_total > 0
+                        ? ` · 本周 ${k.week_task_done}/${k.week_task_total}`
+                        : ""}
+                    </span>
                   </button>
                 );
               })
@@ -278,7 +310,7 @@ export function GoalDrawer({
             )}
           </div>
         ) : null}
-        {goal.level === "week" ? (
+        {goal.level !== "life" ? (
           <div className="mt-24">
             <div className="row between mb-8">
               <span className="strong">
@@ -289,17 +321,48 @@ export function GoalDrawer({
               </Link>
             </div>
             {tasks.length ? (
-              tasks.map((t) => (
-                <TaskRow
-                  key={t.id}
-                  task={t}
-                  goal={goal}
-                  area={area}
-                  locked={weekLocked}
-                  onToggle={() => void mutateTask(() => api.toggleTask(t.id))}
-                  onFocus={() => void mutateTask(() => api.toggleFocus(t.id))}
-                />
-              ))
+              <>
+                {thisWeekTasks.length ? (
+                  <>
+                    <div className="task-group-title">
+                      本周
+                      <span className="muted small">
+                        {thisWeekTasks.filter((t) => t.status === "done").length}/{thisWeekTasks.length}
+                      </span>
+                    </div>
+                    {thisWeekTasks.map((t) => (
+                      <TaskRow
+                        key={t.id}
+                        task={t}
+                        goal={goal}
+                        area={area}
+                        locked={weekLocked}
+                        onToggle={() => void mutateTask(() => api.toggleTask(t.id))}
+                        onFocus={() => void mutateTask(() => api.toggleFocus(t.id))}
+                      />
+                    ))}
+                  </>
+                ) : null}
+                {earlierTasks.length ? (
+                  <>
+                    <div className="task-group-title">
+                      更早
+                      <span className="muted small">{earlierTasks.length}</span>
+                    </div>
+                    {earlierTasks.map((t) => (
+                      <TaskRow
+                        key={t.id}
+                        task={t}
+                        goal={goal}
+                        area={area}
+                        locked
+                        onToggle={() => undefined}
+                        onFocus={() => undefined}
+                      />
+                    ))}
+                  </>
+                ) : null}
+              </>
             ) : (
               <div className="empty">还没有任务。</div>
             )}

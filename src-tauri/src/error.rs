@@ -17,6 +17,7 @@ pub const FOCUS_LIMIT: &str = "FOCUS_LIMIT";
 pub const HABIT_INACTIVE: &str = "HABIT_INACTIVE";
 pub const BACKFILL_WINDOW: &str = "BACKFILL_WINDOW";
 pub const REVIEW_LOCKED: &str = "REVIEW_LOCKED";
+pub const REVIEW_NEXT_TASKS_DONE: &str = "REVIEW_NEXT_TASKS_DONE";
 pub const BACKUP_FAILED: &str = "BACKUP_FAILED";
 pub const IMPORT_INVALID: &str = "IMPORT_INVALID";
 

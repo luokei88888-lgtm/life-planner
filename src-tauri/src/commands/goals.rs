@@ -3,7 +3,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::db::{self, Db};
-use crate::domain::{self, catalog, format_date, parent_level, parent_required, parse_date, period_for, today};
+use crate::domain::{self, catalog, format_date, is_allowed_parent, parent_level, parent_required, parse_date, period_for, today, week_start};
 use crate::error::{
     AppError, GOAL_IN_USE, GOAL_PARENT_INVALID, NOT_FOUND, STATUS_INVALID, VALIDATION_FAILED,
 };
@@ -26,6 +26,8 @@ pub struct Goal {
     pub updated_at: String,
     pub child_count: i64,
     pub task_count: i64,
+    pub week_task_total: i64,
+    pub week_task_done: i64,
 }
 
 #[derive(Serialize)]
@@ -63,25 +65,35 @@ fn map_goal(row: &rusqlite::Row<'_>) -> rusqlite::Result<Goal> {
         updated_at: row.get(13)?,
         child_count: row.get(14)?,
         task_count: row.get(15)?,
+        week_task_total: row.get(16)?,
+        week_task_done: row.get(17)?,
     })
 }
 
 const GOAL_SELECT: &str = "SELECT id, title, level, parent_id, area_id, why, period_start, period_end,
         status, progress, status_reason, done_at, created_at, updated_at,
         (SELECT COUNT(1) FROM goals c WHERE c.parent_id = goals.id),
-        (SELECT COUNT(1) FROM tasks t WHERE t.goal_id = goals.id)
+        (SELECT COUNT(1) FROM tasks t WHERE t.goal_id = goals.id),
+        (SELECT COUNT(1) FROM tasks t WHERE t.goal_id = goals.id AND t.week_start = ?1),
+        (SELECT COUNT(1) FROM tasks t WHERE t.goal_id = goals.id AND t.week_start = ?1 AND t.status = 'done')
      FROM goals";
 
-fn list_all(conn: &Connection) -> Result<Vec<Goal>, AppError> {
+fn current_week(conn: &Connection) -> Result<String, AppError> {
+    Ok(format_date(week_start(today(), week_starts_on(conn)?)))
+}
+
+pub(crate) fn list_all(conn: &Connection) -> Result<Vec<Goal>, AppError> {
+    let week = current_week(conn)?;
     let mut stmt = conn.prepare(&format!("{GOAL_SELECT} ORDER BY period_start ASC, created_at ASC"))?;
-    let rows = stmt.query_map([], map_goal)?;
+    let rows = stmt.query_map([&week], map_goal)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 fn get_by_id(conn: &Connection, id: &str) -> Result<Goal, AppError> {
+    let week = current_week(conn)?;
     conn.query_row(
-        &format!("{GOAL_SELECT} WHERE id = ?1"),
-        [id],
+        &format!("{GOAL_SELECT} WHERE id = ?2"),
+        params![week, id],
         map_goal,
     )
     .optional()?
@@ -259,24 +271,27 @@ pub(crate) fn insert_goal(
         return Err(AppError::new(VALIDATION_FAILED, "年份无效"));
     }
     area_exists(conn, area_id)?;
-    let expected_parent = parent_level(level);
-    let parent = match (expected_parent, parent_id) {
-        (None, Some(_)) => {
+    let parent = match parent_id {
+        Some(_) if parent_level(level).is_none() => {
             return Err(AppError::new(
                 GOAL_PARENT_INVALID,
                 format!("{}目标不能挂上级", domain::level_label(level)),
             ));
         }
-        (Some(_), None) if !parent_required(level) => None,
-        (Some(_), None) => {
+        None if parent_required(level) => {
             return Err(AppError::new(GOAL_PARENT_INVALID, "请选择上级目标"));
         }
-        (Some(expected), Some(id)) => {
+        None => None,
+        Some(id) => {
             let parent = get_by_id(conn, id)?;
-            if parent.level != expected {
+            if !is_allowed_parent(level, &parent.level) {
                 return Err(AppError::new(
                     GOAL_PARENT_INVALID,
-                    format!("上级必须是{}目标", domain::level_label(expected)),
+                    format!(
+                        "{}目标的上级只能是{}",
+                        domain::level_label(level),
+                        domain::allowed_parent_label(level)
+                    ),
                 ));
             }
             if parent.status != "active" {
@@ -285,9 +300,11 @@ pub(crate) fn insert_goal(
                     "上级目标不是进行中状态，先恢复它",
                 ));
             }
+            if parent.level != "life" && parent.area_id != area_id {
+                return Err(AppError::new(GOAL_PARENT_INVALID, "下级必须和上级在同一维度"));
+            }
             Some(parent)
         }
-        (None, None) => None,
     };
 
     let today = today();
