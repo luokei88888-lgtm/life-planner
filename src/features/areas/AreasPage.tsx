@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { AREA_COUNT_MAX, AREA_NAME_MAX, AREA_PALETTE } from "../../shared/constants";
+import { AREA_COUNT_MAX, AREA_NAME_MAX, AREA_PALETTE, AREA_SCORE_DEFAULT, AREA_SCORE_MAX, AREA_SCORE_MIN, areaScorePercent } from "../../shared/constants";
 import type { Area } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
@@ -35,6 +35,8 @@ export function AreasPage() {
     };
   }, []);
 
+  const hasScored = areas.some((a) => a.score != null);
+  const scoreAction = hasScored ? "重新打分" : "开始打分";
   const lastScored = useMemo(() => {
     const times = areas.map((a) => a.scored_at).filter((v): v is string => Boolean(v));
     if (times.length === 0) return "尚未打分";
@@ -62,7 +64,7 @@ export function AreasPage() {
 
   function openScore() {
     const next: Record<string, number> = {};
-    for (const a of areas) next[a.id] = a.score ?? 5;
+    for (const a of areas) next[a.id] = a.score ?? AREA_SCORE_DEFAULT;
     setDraftScores(next);
     setScoreOpen(true);
   }
@@ -72,7 +74,7 @@ export function AreasPage() {
       <div className="page-head">
         <div>
           <h1 className="page-title">维度与人生之轮</h1>
-          <p className="page-sub">给每个维度的现状满意度打分（1-10），看清哪里失衡。最近打分：{lastScored}</p>
+          <p className="page-sub">给每个维度的现状满意度打分（{AREA_SCORE_MIN}-{AREA_SCORE_MAX}），看清哪里失衡。最近打分：{lastScored}</p>
         </div>
         <div className="head-actions">
           <button
@@ -83,7 +85,7 @@ export function AreasPage() {
             新建维度
           </button>
           <button className="btn primary" disabled={busy || areas.length === 0} onClick={openScore}>
-            重新打分
+            {scoreAction}
           </button>
         </div>
       </div>
@@ -108,7 +110,7 @@ export function AreasPage() {
                     <span className="strong">{a.name}</span>
                     <span className="score">
                       {a.score ?? "—"}
-                      <span className="score-scale">/10</span>
+                      <span className="score-scale">/{AREA_SCORE_MAX}</span>
                     </span>
                   </div>
                   <div className="row mt-8">
@@ -160,11 +162,11 @@ export function AreasPage() {
                   <span className="strong">{a.name}</span>
                   <span className="score">
                     {a.score ?? "—"}
-                    <span className="score-scale">/10</span>
+                    <span className="score-scale">/{AREA_SCORE_MAX}</span>
                   </span>
                 </div>
                 <div className="progress thin" style={{ marginTop: 8 }}>
-                  <div style={{ width: `${(a.score ?? 0) * 10}%`, background: a.color }} />
+                  <div style={{ width: areaScorePercent(a.score ?? 0), background: a.color }} />
                 </div>
                 <div className="row mt-8">
                   <button className="btn sm" disabled={busy} onClick={() => setForm({ id: a.id, name: a.name, color: a.color })}>
@@ -183,21 +185,21 @@ export function AreasPage() {
 
       {scoreOpen ? (
         <Modal onClose={() => setScoreOpen(false)}>
-          <h3>重新打分</h3>
-          <p className="muted small mb-16">给每个维度的现状满意度打分（1-10），一次性提交。</p>
+          <h3>{scoreAction}</h3>
+          <p className="muted small mb-16">给每个维度的现状满意度打分（{AREA_SCORE_MIN}-{AREA_SCORE_MAX}），一次性提交。</p>
           {areas.map((a) => (
             <div className="slider-row" key={a.id}>
               <span>{a.name}</span>
               <input
                 type="range"
-                min={1}
-                max={10}
-                value={draftScores[a.id] ?? 5}
+                min={AREA_SCORE_MIN}
+                max={AREA_SCORE_MAX}
+                value={draftScores[a.id] ?? AREA_SCORE_DEFAULT}
                 onChange={(e) =>
                   setDraftScores((prev) => ({ ...prev, [a.id]: Number(e.target.value) }))
                 }
               />
-              <span className="val">{draftScores[a.id] ?? 5}</span>
+              <span className="val">{draftScores[a.id] ?? AREA_SCORE_DEFAULT}</span>
             </div>
           ))}
           <div className="modal-foot">
@@ -211,7 +213,7 @@ export function AreasPage() {
                 void run(
                   () =>
                     api.scoreAreas(areas.map((a) => ({ id: a.id, score: draftScores[a.id] ?? 5 }))),
-                  "已更新人生之轮",
+                  hasScored ? "已更新人生之轮" : "已完成打分",
                 )
               }
             >

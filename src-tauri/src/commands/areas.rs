@@ -220,8 +220,15 @@ pub(crate) fn apply_scores(
     scores: &[AreaScoreInput],
 ) -> Result<(), AppError> {
     for item in scores {
-        if !(1..=10).contains(&item.score) {
-            return Err(AppError::new(VALIDATION_FAILED, "分数必须在 1 到 10 之间"));
+        if !domain::is_area_score(item.score) {
+            return Err(AppError::new(
+                VALIDATION_FAILED,
+                format!(
+                    "分数必须在 {} 到 {} 之间",
+                    domain::area_score_min(),
+                    domain::area_score_max()
+                ),
+            ));
         }
     }
     for item in scores {

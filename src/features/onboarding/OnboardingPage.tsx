@@ -1,7 +1,10 @@
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import {
+  AREA_SCORE_DEFAULT,
+  AREA_SCORE_MAX,
+  AREA_SCORE_MIN,
   GOAL_TITLE_MAX,
   GOAL_WHY_MAX,
   HABIT_KIND_HINT,
@@ -38,7 +41,7 @@ export function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Draft>(() => ({
-    scores: Object.fromEntries(areas.map((a) => [a.id, a.score ?? 5])),
+    scores: Object.fromEntries(areas.map((a) => [a.id, a.score ?? AREA_SCORE_DEFAULT])),
     areaId: lowest?.id ?? "",
     title: "",
     why: "",
@@ -48,6 +51,17 @@ export function OnboardingPage() {
     freq: "daily",
     habitArea: lowest?.id ?? "",
   }));
+
+  const areaScoreKey = areas.map((a) => `${a.id}:${a.score ?? ""}`).join("|");
+  useEffect(() => {
+    const lowestId = [...areas].sort((a, b) => (a.score ?? 0) - (b.score ?? 0))[0]?.id ?? "";
+    setDraft((current) => ({
+      ...current,
+      scores: Object.fromEntries(areas.map((a) => [a.id, a.score ?? AREA_SCORE_DEFAULT])),
+      areaId: areas.some((a) => a.id === current.areaId) ? current.areaId : lowestId,
+      habitArea: areas.some((a) => a.id === current.habitArea) ? current.habitArea : lowestId,
+    }));
+  }, [areaScoreKey, areas]);
 
   async function skip() {
     sessionStorage.setItem(SKIP_ONBOARDING_KEY, "1");
@@ -72,7 +86,7 @@ export function OnboardingPage() {
     setBusy(true);
     try {
       const result = await api.completeOnboarding({
-        scores: areas.map((a) => ({ id: a.id, score: draft.scores[a.id] ?? a.score ?? 5 })),
+        scores: areas.map((a) => ({ id: a.id, score: draft.scores[a.id] ?? a.score ?? AREA_SCORE_DEFAULT })),
         title: draft.title.trim() || null,
         why: draft.why.trim() || null,
         areaId: draft.areaId || lowest?.id || null,
@@ -133,15 +147,15 @@ export function OnboardingPage() {
       body = (
         <>
           <h2 style={{ margin: "0 0 8px" }}>给 {areas.length} 个维度打分</h2>
-          <p className="muted">1 分很不满意，10 分非常满意。凭直觉，不用想太久。</p>
+          <p className="muted">1 分很不满意，{AREA_SCORE_MAX} 分非常满意。凭直觉，不用想太久。</p>
           {areas.map((a) => (
             <div className="slider-row" key={a.id}>
               <span>{a.name}</span>
               <input
                 type="range"
-                min={1}
-                max={10}
-                value={draft.scores[a.id] ?? 5}
+                min={AREA_SCORE_MIN}
+                max={AREA_SCORE_MAX}
+                value={draft.scores[a.id] ?? AREA_SCORE_DEFAULT}
                 onChange={(e) =>
                   setDraft({
                     ...draft,
@@ -149,7 +163,7 @@ export function OnboardingPage() {
                   })
                 }
               />
-              <span className="val">{draft.scores[a.id] ?? 5}</span>
+              <span className="val">{draft.scores[a.id] ?? AREA_SCORE_DEFAULT}</span>
             </div>
           ))}
           {nav(true)}
@@ -293,7 +307,7 @@ export function OnboardingPage() {
           <p className="muted">
             接下来每天打开首页看今日焦点和习惯，周日花 10 分钟做周复盘。剩下的交给时间。
           </p>
-          <div className="card" style={{ background: "var(--surface-2)" }}>
+          <div className="card onboard-recap">
             <div className="kv">
               <span className="k">年度目标</span>
               <span>{draft.title.trim() || "（未填写）"}</span>

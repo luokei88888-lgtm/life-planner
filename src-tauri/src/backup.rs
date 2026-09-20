@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::commands::settings;
 use crate::db;
@@ -256,7 +257,8 @@ pub fn import_json(conn: &Connection, data_dir: &Path, raw: &str) -> Result<Snap
             format!("备份文件超过 {} 字节上限", max),
         ));
     }
-    let doc: ExportDoc = serde_json::from_str(raw)?;
+    let mut doc: ExportDoc = serde_json::from_str(raw)?;
+    coerce_legacy_area_scores(&mut doc);
     validate(&doc)?;
     let snapshot = create_snapshot(conn, data_dir)?;
     restore(conn, &doc)?;
@@ -563,6 +565,55 @@ fn query_notes(conn: &Connection) -> Result<Vec<NoteRow>, AppError> {
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
+fn coerce_legacy_area_scores(doc: &mut ExportDoc) {
+    let max = domain::area_score_max();
+    if doc
+        .areas
+        .iter()
+        .any(|area| area.score.map(|score| score > max).unwrap_or(false))
+    {
+        for area in &mut doc.areas {
+            if let Some(score) = area.score {
+                area.score = Some(domain::scale_area_score_from_ten(score));
+            }
+        }
+    }
+    for row in doc.monthly_reviews.iter_mut() {
+        if let Some(raw) = row.summary_snapshot.as_mut() {
+            if let Some(next) = scale_snapshot_if_legacy(raw) {
+                *raw = next;
+            }
+        }
+    }
+    for row in doc.yearly_reviews.iter_mut() {
+        if let Some(raw) = row.summary_snapshot.as_mut() {
+            if let Some(next) = scale_snapshot_if_legacy(raw) {
+                *raw = next;
+            }
+        }
+    }
+}
+
+fn scale_snapshot_if_legacy(raw: &str) -> Option<String> {
+    let mut value: Value = serde_json::from_str(raw).ok()?;
+    let scores = value.get_mut("area_scores")?.as_array_mut()?;
+    let max = domain::area_score_max();
+    if !scores.iter().any(|item| {
+        item.get("score")
+            .and_then(Value::as_i64)
+            .map(|score| score > max)
+            .unwrap_or(false)
+    }) {
+        return None;
+    }
+    for item in scores {
+        if let Some(score) = item.get("score").and_then(Value::as_i64) {
+            item["score"] = json!(domain::scale_area_score_from_ten(score));
+        }
+    }
+    Some(value.to_string())
+}
+
 fn fail(message: impl Into<String>) -> AppError {
     AppError::new(IMPORT_INVALID, message)
 }
@@ -682,8 +733,12 @@ fn validate(doc: &ExportDoc) -> Result<(), AppError> {
             return Err(fail("维度颜色不在允许的色板内"));
         }
         if let Some(score) = area.score {
-            if !(1..=10).contains(&score) {
-                return Err(fail("维度分数必须在 1 到 10 之间"));
+            if !domain::is_area_score(score) {
+                return Err(fail(format!(
+                    "维度分数必须在 {} 到 {} 之间",
+                    domain::area_score_min(),
+                    domain::area_score_max()
+                )));
             }
         }
         require_flag(area.is_archived, "维度归档标记")?;

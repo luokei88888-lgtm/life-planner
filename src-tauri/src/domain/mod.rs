@@ -37,6 +37,8 @@ pub struct Catalog {
     pub area_palette: Vec<String>,
     pub area_name_max: usize,
     pub area_count_max: i64,
+    pub area_score_min: i64,
+    pub area_score_max: i64,
     pub goal_title_max: usize,
     pub goal_why_max: usize,
     pub goal_levels: Vec<String>,
@@ -66,6 +68,10 @@ struct CatalogFile {
     area_name_max: usize,
     #[serde(rename = "areaCountMax")]
     area_count_max: i64,
+    #[serde(rename = "areaScoreMin")]
+    area_score_min: i64,
+    #[serde(rename = "areaScoreMax")]
+    area_score_max: i64,
     #[serde(rename = "goalTitleMax")]
     goal_title_max: usize,
     #[serde(rename = "goalWhyMax")]
@@ -114,6 +120,8 @@ pub fn catalog() -> &'static Catalog {
             area_palette: raw.area_palette,
             area_name_max: raw.area_name_max,
             area_count_max: raw.area_count_max,
+            area_score_min: raw.area_score_min,
+            area_score_max: raw.area_score_max,
             goal_title_max: raw.goal_title_max,
             goal_why_max: raw.goal_why_max,
             goal_levels: raw.goal_levels,
@@ -134,6 +142,26 @@ pub fn catalog() -> &'static Catalog {
             import_json_max_bytes: raw.import_json_max_bytes,
         }
     })
+}
+
+pub fn area_score_min() -> i64 {
+    catalog().area_score_min
+}
+
+pub fn area_score_max() -> i64 {
+    catalog().area_score_max
+}
+
+pub fn default_area_score() -> i64 {
+    (area_score_min() + area_score_max() + 1) / 2
+}
+
+pub fn is_area_score(value: i64) -> bool {
+    (area_score_min()..=area_score_max()).contains(&value)
+}
+
+pub fn scale_area_score_from_ten(score: i64) -> i64 {
+    ((score + 1) / 2).clamp(area_score_min(), area_score_max())
 }
 
 pub fn is_theme(value: &str) -> bool {

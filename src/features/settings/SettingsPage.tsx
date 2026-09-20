@@ -423,7 +423,6 @@ export function SettingsPage() {
                 void run(async () => {
                   const result = await api.factoryReset();
                   sessionStorage.removeItem(SKIP_ONBOARDING_KEY);
-                  applySettings(result.settings);
                   await reload();
                   setConfirmReset(false);
                   setResetPhrase("");

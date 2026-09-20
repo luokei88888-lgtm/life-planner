@@ -518,7 +518,7 @@ fn snap_area_scores(conn: &Connection) -> Result<Vec<SnapArea>, AppError> {
             id: row.get(0)?,
             name: row.get(1)?,
             color: row.get(2)?,
-            score: row.get::<_, Option<i64>>(3)?.unwrap_or(5),
+            score: row.get::<_, Option<i64>>(3)?.unwrap_or_else(domain::default_area_score),
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)

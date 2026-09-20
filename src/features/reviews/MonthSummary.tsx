@@ -1,4 +1,5 @@
 import { fmtMd } from "../../shared/time";
+import { areaScorePercent } from "../../shared/constants";
 import type { MonthSnapshot } from "../../shared/types";
 import { LineChart } from "./LineChart";
 import { GoalTaskEvidence } from "./GoalTaskEvidence";
@@ -64,7 +65,7 @@ export function MonthSummary({ snap, frozen }: { snap: MonthSnapshot; frozen?: b
                 <span style={{ width: 72 }}>{a.name}</span>
                 <div style={{ flex: 1 }}>
                   <div className="progress thin">
-                    <div style={{ width: `${a.score * 10}%`, background: a.color }} />
+                    <div style={{ width: areaScorePercent(a.score), background: a.color }} />
                   </div>
                 </div>
                 <span className="muted small" style={{ width: 28, textAlign: "right" }}>

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { AREA_SCORE_MAX } from "../../shared/constants";
 import type { Area } from "../../shared/types";
 
 type Props = {
@@ -177,8 +178,8 @@ export function RadarChart({ areas, size, highlightId = null, onHover }: Props) 
       brush.globalAlpha = 1;
 
       if (list.length) {
-        const base = list.map((a, i) => polar(i, n, ((a.score ?? 0) / 10) * R, 0));
-        const top = list.map((a, i) => polar(i, n, ((a.score ?? 0) / 10) * R, 16));
+        const base = list.map((a, i) => polar(i, n, ((a.score ?? 0) / AREA_SCORE_MAX) * R, 0));
+        const top = list.map((a, i) => polar(i, n, ((a.score ?? 0) / AREA_SCORE_MAX) * R, 16));
         const pb = base.map(xf);
         const pt = top.map(xf);
 

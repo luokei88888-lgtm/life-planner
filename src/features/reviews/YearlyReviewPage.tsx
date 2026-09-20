@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { GOAL_STATUSES, REVIEW_ANSWER_MAX, STATUS_LABEL, type GoalStatus } from "../../shared/constants";
+import { AREA_SCORE_MAX, AREA_SCORE_MIN, GOAL_STATUSES, REVIEW_ANSWER_MAX, STATUS_LABEL, type GoalStatus } from "../../shared/constants";
 import { yearReviewDue } from "../../shared/time";
 import type { YearlyReviewView } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
@@ -399,8 +399,8 @@ export function YearlyReviewPage() {
                 </span>
                 <input
                   type="range"
-                  min={1}
-                  max={10}
+                  min={AREA_SCORE_MIN}
+                  max={AREA_SCORE_MAX}
                   value={areaDraft[a.id] ?? a.score}
                   disabled={busy}
                   onChange={(e) =>

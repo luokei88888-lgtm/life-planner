@@ -27,6 +27,13 @@ export const ThemeId = {
 export const AREA_PALETTE = catalog.areaPalette;
 export const AREA_NAME_MAX = catalog.areaNameMax;
 export const AREA_COUNT_MAX = catalog.areaCountMax;
+export const AREA_SCORE_MIN = catalog.areaScoreMin;
+export const AREA_SCORE_MAX = catalog.areaScoreMax;
+export const AREA_SCORE_DEFAULT = Math.ceil((AREA_SCORE_MIN + AREA_SCORE_MAX) / 2);
+
+export function areaScorePercent(score: number) {
+  return `${(Math.max(0, score) / AREA_SCORE_MAX) * 100}%`;
+}
 export const GOAL_TITLE_MAX = catalog.goalTitleMax;
 export const GOAL_WHY_MAX = catalog.goalWhyMax;
 export const ACTIVE_LIMITS = catalog.activeLimits;

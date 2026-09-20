@@ -488,7 +488,7 @@ fn onboarding_hangs_first_task_on_year_without_week_goal() {
     let conn = conn();
     let payload: OnboardingPayload = serde_json::from_str(
         r#"{
-        "scores": [{"id":"a1","score":6}],
+        "scores": [{"id":"a1","score":4}],
         "title": "今年把身体练回来",
         "why": "必须写为什么重要这句话够长了",
         "areaId": "a1",
@@ -534,7 +534,7 @@ fn onboarding_still_hangs_task_on_week_when_week_title_sent() {
     let conn = conn();
     let payload: OnboardingPayload = serde_json::from_str(
         r#"{
-        "scores": [{"id":"a2","score":6}],
+        "scores": [{"id":"a2","score":4}],
         "title": "另外一个年目标也要够长",
         "why": "必须写为什么重要这句话够长了",
         "areaId": "a2",
@@ -727,7 +727,7 @@ fn monthly_submit_applies_scores_then_snapshots() {
         "下月少开新坑",
         Some(&[AreaScoreInput {
             id: "a1".into(),
-            score: 7,
+            score: 4,
         }]),
     )
     .unwrap();
@@ -738,11 +738,11 @@ fn monthly_submit_applies_scores_then_snapshots() {
         .iter()
         .find(|a| a.id == "a1")
         .expect("health area");
-    assert_eq!(health.score, 7);
+    assert_eq!(health.score, 4);
     let score: i64 = conn
         .query_row("SELECT score FROM areas WHERE id = 'a1'", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(score, 7);
+    assert_eq!(score, 4);
 }
 
 #[test]
@@ -752,7 +752,7 @@ fn monthly_submit_without_scores_keeps_radar() {
         &conn,
         &[AreaScoreInput {
             id: "a2".into(),
-            score: 9,
+            score: 5,
         }],
     )
     .unwrap();
@@ -772,11 +772,11 @@ fn monthly_submit_without_scores_keeps_radar() {
         .iter()
         .find(|a| a.id == "a2")
         .expect("career area");
-    assert_eq!(career.score, 9);
+    assert_eq!(career.score, 5);
     let score: i64 = conn
         .query_row("SELECT score FROM areas WHERE id = 'a2'", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(score, 9);
+    assert_eq!(score, 5);
 }
 
 #[test]
@@ -993,6 +993,14 @@ fn factory_reset_wipes_data_reseeds_and_does_not_owe_past_reviews() {
         i64::from(today().year()),
     )
     .unwrap();
+    apply_scores(
+        &conn,
+        &[AreaScoreInput {
+            id: "a1".into(),
+            score: 4,
+        }],
+    )
+    .unwrap();
     settings::upsert(&conn, "onboarded", "1").unwrap();
     settings::upsert(&conn, "theme", "moss").unwrap();
     settings::upsert(&conn, "started_on", "2020-01-01").unwrap();
@@ -1022,6 +1030,10 @@ fn factory_reset_wipes_data_reseeds_and_does_not_owe_past_reviews() {
     assert_eq!(goals, 0);
     assert_eq!(reviews, 0);
     assert_eq!(areas, 8);
+    let health_score: Option<i64> = conn
+        .query_row("SELECT score FROM areas WHERE id = 'a1'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(health_score, None);
     assert!(!loaded.onboarded);
     assert_eq!(loaded.theme, "dark");
     assert!(loaded.started_on.is_none());
@@ -1062,7 +1074,7 @@ fn yearly_submit_applies_scores_then_snapshots() {
         "明年少开新坑",
         Some(&[AreaScoreInput {
             id: "a1".into(),
-            score: 8,
+            score: 4,
         }]),
     )
     .unwrap();
@@ -1073,11 +1085,11 @@ fn yearly_submit_applies_scores_then_snapshots() {
         .iter()
         .find(|a| a.id == "a1")
         .expect("health area");
-    assert_eq!(health.score, 8);
+    assert_eq!(health.score, 4);
     let score: i64 = conn
         .query_row("SELECT score FROM areas WHERE id = 'a1'", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(score, 8);
+    assert_eq!(score, 4);
 }
 
 #[test]
@@ -1087,7 +1099,7 @@ fn yearly_submit_without_scores_keeps_radar() {
         &conn,
         &[AreaScoreInput {
             id: "a2".into(),
-            score: 9,
+            score: 5,
         }],
     )
     .unwrap();
@@ -1107,11 +1119,11 @@ fn yearly_submit_without_scores_keeps_radar() {
         .iter()
         .find(|a| a.id == "a2")
         .expect("career area");
-    assert_eq!(career.score, 9);
+    assert_eq!(career.score, 5);
     let score: i64 = conn
         .query_row("SELECT score FROM areas WHERE id = 'a2'", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(score, 9);
+    assert_eq!(score, 5);
 }
 
 #[test]

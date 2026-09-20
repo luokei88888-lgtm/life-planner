@@ -5,6 +5,7 @@ import {
   FOCUS_LIMIT,
   HABIT_KIND_LABEL,
   LEVEL_LABEL,
+  areaScorePercent,
   habitCheckLabel,
   habitKindOf,
   habitToggleError,
@@ -268,7 +269,7 @@ export function HomePage() {
                 <span className="dot" style={{ background: a.color }} />
                 <span className="name">{a.name}</span>
                 <div className="progress thin">
-                  <div style={{ width: `${(a.score ?? 0) * 10}%`, background: a.color }} />
+                  <div style={{ width: areaScorePercent(a.score ?? 0), background: a.color }} />
                 </div>
                 <span className="score">{a.score ?? "—"}</span>
               </div>

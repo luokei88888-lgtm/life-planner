@@ -77,19 +77,24 @@ export function HabitFormModal({
           onChange={(areaId) => setDraft({ ...draft, areaId, goalId: "" })}
         />
       </div>
-      <div className="field">
-        <label htmlFor="hf-goal">关联目标（可选）</label>
-        <Select
-          id="hf-goal"
-          value={draft.goalId}
-          options={[
-            { value: "", label: "只挂在维度下" },
-            ...areaGoals.map((g) => ({ value: g.id, label: g.title })),
-          ]}
-          onChange={(goalId) => setDraft({ ...draft, goalId })}
-        />
-        <div className="hint">习惯必须挂在维度下，也可以再挂到同一维度的某个目标。</div>
-      </div>
+      {areaGoals.length > 0 || draft.goalId ? (
+        <div className="field">
+          <label htmlFor="hf-goal">关联目标（可选）</label>
+          <Select
+            id="hf-goal"
+            value={draft.goalId}
+            options={[
+              { value: "", label: "不关联目标" },
+              ...areaGoals.map((g) => ({ value: g.id, label: g.title })),
+              ...(draft.goalId && !areaGoals.some((g) => g.id === draft.goalId)
+                ? [{ value: draft.goalId, label: goals.find((g) => g.id === draft.goalId)?.title ?? "已选目标" }]
+                : []),
+            ]}
+            onChange={(goalId) => setDraft({ ...draft, goalId })}
+          />
+          <div className="hint">可以再挂到这个维度下的某个目标；不选就只属于维度。</div>
+        </div>
+      ) : null}
       <div className="field">
         <label htmlFor="hf-freq">频率</label>
         <div className="row">

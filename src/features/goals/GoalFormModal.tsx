@@ -29,6 +29,9 @@ export function GoalFormModal({
 }) {
   const [draft, setDraft] = useState(form);
   useEffect(() => setDraft(form), [form]);
+  const areaLocked = Boolean(draft.parent && draft.parent.level !== "life");
+  const lockedAreaId = areaLocked ? draft.parent?.area_id ?? draft.areaId : draft.areaId;
+  const lockedArea = areas.find((a) => a.id === lockedAreaId);
   const unit = LEVEL_LABEL[draft.level].replace("度", "");
 
   return (
@@ -52,12 +55,24 @@ export function GoalFormModal({
       </div>
       <div className="field">
         <label htmlFor="gf-area">维度</label>
-        <Select
-          id="gf-area"
-          value={draft.areaId}
-          options={areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color }))}
-          onChange={(areaId) => setDraft({ ...draft, areaId })}
-        />
+        {areaLocked ? (
+          <>
+            <input
+              id="gf-area"
+              type="text"
+              value={lockedArea?.name ?? "上级维度"}
+              disabled
+            />
+            <div className="hint">跟随上级，不能改到别的维度。</div>
+          </>
+        ) : (
+          <Select
+            id="gf-area"
+            value={draft.areaId}
+            options={areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color }))}
+            onChange={(areaId) => setDraft({ ...draft, areaId })}
+          />
+        )}
       </div>
       <div className="field">
         <label htmlFor="gf-why">为什么重要（必填）</label>
@@ -81,7 +96,7 @@ export function GoalFormModal({
         <button
           className="btn primary"
           disabled={busy || !draft.title.trim() || !draft.why.trim()}
-          onClick={() => onSave(draft)}
+          onClick={() => onSave({ ...draft, areaId: lockedAreaId })}
         >
           保存
         </button>

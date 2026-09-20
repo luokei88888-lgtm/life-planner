@@ -14,6 +14,8 @@
   ],
   "areaNameMax": 20,
   "areaCountMax": 16,
+  "areaScoreMin": 1,
+  "areaScoreMax": 5,
   "goalTitleMax": 60,
   "goalWhyMax": 300,
   "goalLevels": ["life", "year", "quarter", "month", "week"],
