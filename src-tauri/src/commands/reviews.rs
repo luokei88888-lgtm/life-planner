@@ -11,7 +11,9 @@ use crate::domain::{
     self, add_days, format_date, habit_expected, last_day_of_month, parse_date, percent, today,
     week_start,
 };
-use crate::error::{AppError, NOT_FOUND, REVIEW_LOCKED, REVIEW_NEXT_TASKS_DONE, VALIDATION_FAILED};
+use crate::error::{
+    AppError, NOT_FOUND, REVIEW_LOCKED, REVIEW_NEXT_TASKS_DONE, REVIEW_NOT_DUE, VALIDATION_FAILED,
+};
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CarriedTask {
@@ -148,6 +150,9 @@ pub struct ReviewList {
     pub this_month: String,
     pub this_year: String,
     pub weekday: i64,
+    pub this_week_status: String,
+    pub this_month_status: String,
+    pub this_year_status: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -768,7 +773,68 @@ fn weekly_status(conn: &Connection, week: &str) -> Result<Option<String>, AppErr
     .map_err(Into::into)
 }
 
+fn monthly_status(conn: &Connection, month: &str) -> Result<Option<String>, AppError> {
+    conn.query_row(
+        "SELECT status FROM monthly_reviews WHERE month = ?1",
+        [month],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+fn yearly_status(conn: &Connection, year: &str) -> Result<Option<String>, AppError> {
+    conn.query_row(
+        "SELECT status FROM yearly_reviews WHERE year = ?1",
+        [year],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+fn status_or_none(value: Option<String>) -> String {
+    value.filter(|s| !s.is_empty()).unwrap_or_else(|| "none".into())
+}
+
+fn require_week_due(week: &str) -> Result<(), AppError> {
+    let start = parse_date(week).map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
+    if today() < add_days(start, 6) {
+        return Err(AppError::new(
+            REVIEW_NOT_DUE,
+            "本周还没结束，等最后一天再写复盘",
+        ));
+    }
+    Ok(())
+}
+
+fn require_month_due(year: i32, month: u32) -> Result<(), AppError> {
+    if today() < last_day_of_month(year, month) {
+        return Err(AppError::new(
+            REVIEW_NOT_DUE,
+            "这个月还没结束，结束后再写月复盘",
+        ));
+    }
+    Ok(())
+}
+
+fn require_year_due(year: &str) -> Result<(), AppError> {
+    let year_n: i32 = year
+        .parse()
+        .map_err(|_| AppError::new(VALIDATION_FAILED, "年份格式无效"))?;
+    let end = NaiveDate::from_ymd_opt(year_n, 12, 31)
+        .ok_or_else(|| AppError::new(VALIDATION_FAILED, "年份格式无效"))?;
+    if today() < end {
+        return Err(AppError::new(
+            REVIEW_NOT_DUE,
+            "这一年还没结束，结束后再写年复盘",
+        ));
+    }
+    Ok(())
+}
+
 fn require_editable(conn: &Connection, week: &str) -> Result<(), AppError> {
+    require_week_due(week)?;
     if let Some(status) = weekly_status(conn, week)? {
         if locked(&status) {
             return Err(AppError::new(REVIEW_LOCKED, "该周复盘已结束，不能再改"));
@@ -1053,10 +1119,13 @@ pub(crate) fn review_list(conn: &Connection) -> Result<ReviewList, AppError> {
         Ok(ReviewList {
             pending,
             history,
-            this_week,
-            this_month,
-            this_year,
+            this_week: this_week.clone(),
+            this_month: this_month.clone(),
+            this_year: this_year.clone(),
             weekday: i64::from(today.weekday().num_days_from_sunday()),
+            this_week_status: status_or_none(weekly_status(conn, &this_week)?),
+            this_month_status: status_or_none(monthly_status(conn, &this_month)?),
+            this_year_status: status_or_none(yearly_status(conn, &this_year)?),
         })
 }
 
@@ -1265,7 +1334,8 @@ pub fn save_monthly_draft(
     let next = domain::normalize_review_answer(&q_next_month, false)
         .map_err(|m| AppError::new(VALIDATION_FAILED, m))?;
     db::with_conn(&db, |conn| {
-        let (_, _, month) = parse_month(&month)?;
+        let (year, month_n, month) = parse_month(&month)?;
+        require_month_due(year, month_n)?;
         let status: Option<String> = conn
             .query_row(
                 "SELECT status FROM monthly_reviews WHERE month = ?1",
@@ -1298,7 +1368,8 @@ pub(crate) fn submit_monthly_review_record(
     next: &str,
     scores: Option<&[AreaScoreInput]>,
 ) -> Result<MonthlyReviewView, AppError> {
-    let (_, _, month) = parse_month(month)?;
+    let (year, month_n, month) = parse_month(month)?;
+    require_month_due(year, month_n)?;
     let status: Option<String> = conn
         .query_row(
             "SELECT status FROM monthly_reviews WHERE month = ?1",
@@ -1381,6 +1452,7 @@ pub fn save_yearly_draft(
         .map_err(|m| AppError::new(VALIDATION_FAILED, m))?;
     db::with_conn(&db, |conn| {
         let year = parse_year(&year)?;
+        require_year_due(&year)?;
         let status: Option<String> = conn
             .query_row(
                 "SELECT status FROM yearly_reviews WHERE year = ?1",
@@ -1414,6 +1486,7 @@ pub(crate) fn submit_yearly_review_record(
     scores: Option<&[AreaScoreInput]>,
 ) -> Result<YearlyReviewView, AppError> {
     let year = parse_year(year)?;
+    require_year_due(&year)?;
     let status: Option<String> = conn
         .query_row(
             "SELECT status FROM yearly_reviews WHERE year = ?1",

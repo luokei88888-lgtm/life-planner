@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import { REVIEW_ANSWER_MAX, REVIEW_NEXT_TASK_MAX, TASK_TITLE_MAX } from "../../shared/constants";
-import { addDays, weekLabel, weekNo } from "../../shared/time";
+import { addDays, weekLabel, weekNo, weekReviewDue, weekdayLabel } from "../../shared/time";
 import type { WeeklyReviewView } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
@@ -64,6 +64,7 @@ export function WeeklyReviewPage() {
   if (!view) return <p className="empty">正在加载周复盘…</p>;
 
   const readonly = view.status === "submitted" || view.status === "skipped";
+  const due = weekReviewDue(view.week_start);
   const answers = {
     weekStart,
     wentWell,
@@ -202,6 +203,26 @@ export function WeeklyReviewPage() {
           </div>
         </Modal>
       ) : null;
+
+  if (!readonly && !due) {
+    const lastDay = weekdayLabel(addDays(view.week_start, 6));
+    return (
+      <>
+        <div className="page-head">
+          <div>
+            <Link className="muted small" to="/reviews">
+              ← 返回复盘
+            </Link>
+            <h1 className="page-title">周复盘 · {weekLabel(view.week_start)}</h1>
+            <p className="page-sub">本周还没结束，{lastDay}再写</p>
+          </div>
+        </div>
+        <section className="card">
+          <p className="empty">周期没走完，先别写复盘。等{lastDay}再来。</p>
+        </section>
+      </>
+    );
+  }
 
   if (readonly) {
     return (

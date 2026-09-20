@@ -1,9 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { fmtMonth, weekLabel, weekNo } from "../../shared/time";
+import { addDays, fmtMonth, weekdayLabel, weekLabel, weekNo, weekReviewDue, weekReviewWaitLabel } from "../../shared/time";
 import type { ReviewList } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
+
+type PeriodStatus = ReviewList["this_week_status"];
+
+function periodCta(status: PeriodStatus | undefined, idle: { btn: string; sub: string }) {
+  if (status === "submitted") return { btn: "查看", sub: "已提交" };
+  if (status === "skipped") return { btn: "查看", sub: "已跳过" };
+  if (status === "draft") return { btn: "继续", sub: "草稿已保存，继续完成" };
+  return idle;
+}
 
 export function ReviewsPage() {
   const { notify } = useApp();
@@ -27,13 +36,29 @@ export function ReviewsPage() {
 
   const pending = data?.pending ?? [];
   const history = data?.history ?? [];
+  const weekDue = data ? weekReviewDue(data.this_week) : false;
+  const weekLocked =
+    data?.this_week_status === "submitted" || data?.this_week_status === "skipped";
+  const weekReady = Boolean(data && (weekLocked || weekDue));
+  const weekCta = data
+    ? periodCta(data.this_week_status, {
+        btn: "开始",
+        sub: `今天是${weekdayLabel(addDays(data.this_week, 6))}，可以开始了`,
+      })
+    : null;
+
+  function actionClass(btn: string) {
+    return btn === "开始" || btn === "继续" ? "btn primary sm" : "btn sm";
+  }
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1 className="page-title">复盘</h1>
-          <p className="page-sub">周复盘每周日开放，月复盘每月 1 日开放，年复盘每年初开放。大部分内容自动汇总，你只需回答几个问题。</p>
+          <p className="page-sub">
+            周复盘在本周最后一天写；月复盘在月末后写上个月；年复盘在年末后写上一年。大部分内容自动汇总，你只需回答几个问题。
+          </p>
         </div>
       </div>
       <div className="row mb-16">
@@ -75,41 +100,21 @@ export function ReviewsPage() {
           ) : (
             <p className="empty">没有需要补写的复盘。</p>
           )}
-          {data ? (
-            <>
-              <div className="review-item">
-                <span className="tag">周复盘</span>
-                <div className="r-title">
-                  <div className="strong">{weekLabel(data.this_week)} · 本周</div>
-                  <div className="muted small">
-                    {data.weekday === 0 ? "今天是周日，可以开始了" : "周日开放，也可以提前写"}
-                  </div>
-                </div>
-                <Link className="btn sm" to={`/reviews/weekly/${data.this_week}`}>
-                  {data.weekday === 0 ? "开始" : "提前体验"}
-                </Link>
+          {data && weekCta ? (
+            <div className="review-item">
+              <span className="tag">周复盘</span>
+              <div className="r-title">
+                <div className="strong">{weekLabel(data.this_week)} · 本周</div>
+                <div className="muted small">{weekReady ? weekCta.sub : weekReviewWaitLabel(data.this_week)}</div>
               </div>
-              <div className="review-item">
-                <span className="tag level">月复盘</span>
-                <div className="r-title">
-                  <div className="strong">{fmtMonth(data.this_month)}</div>
-                  <div className="muted small">每月 1 日开放，也可以提前写</div>
-                </div>
-                <Link className="btn sm" to={`/reviews/monthly/${data.this_month}`}>
-                  提前体验
+              {weekReady ? (
+                <Link className={actionClass(weekCta.btn)} to={`/reviews/weekly/${data.this_week}`}>
+                  {weekCta.btn}
                 </Link>
-              </div>
-              <div className="review-item">
-                <span className="tag level">年复盘</span>
-                <div className="r-title">
-                  <div className="strong">{data.this_year} 年</div>
-                  <div className="muted small">每年初开放，也可以提前写</div>
-                </div>
-                <Link className="btn sm" to={`/reviews/yearly/${data.this_year}`}>
-                  提前体验
-                </Link>
-              </div>
-            </>
+              ) : (
+                <span className="muted small">{weekReviewWaitLabel(data.this_week)}</span>
+              )}
+            </div>
           ) : (
             <p className="empty">正在加载…</p>
           )}

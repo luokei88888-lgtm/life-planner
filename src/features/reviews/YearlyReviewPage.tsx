@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import { GOAL_STATUSES, REVIEW_ANSWER_MAX, STATUS_LABEL, type GoalStatus } from "../../shared/constants";
+import { yearReviewDue } from "../../shared/time";
 import type { YearlyReviewView } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
@@ -128,7 +129,27 @@ export function YearlyReviewPage() {
   if (!view) return <p className="empty">正在加载年复盘…</p>;
 
   const readonly = view.status === "submitted";
+  const due = yearReviewDue(view.year);
   const hasMonthRecord = view.snapshot.submitted_months > 0 || view.snapshot.skipped > 0;
+
+  if (!readonly && !due) {
+    return (
+      <>
+        <div className="page-head">
+          <div>
+            <Link className="muted small" to="/reviews">
+              ← 返回复盘
+            </Link>
+            <h1 className="page-title">年复盘 · {view.year}</h1>
+            <p className="page-sub">这一年还没结束，结束后再写</p>
+          </div>
+        </div>
+        <section className="card">
+          <p className="empty">年复盘只写已经过完的年份。今年会出现在明年年初的待处理里。</p>
+        </section>
+      </>
+    );
+  }
 
   if (readonly) {
     return (

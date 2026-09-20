@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import { GOAL_STATUSES, REVIEW_ANSWER_MAX, STATUS_LABEL, type GoalStatus } from "../../shared/constants";
-import { fmtMonth } from "../../shared/time";
+import { fmtMonth, monthReviewDue } from "../../shared/time";
 import type { MonthlyReviewView } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
@@ -129,7 +129,27 @@ export function MonthlyReviewPage() {
   if (!view) return <p className="empty">正在加载月复盘…</p>;
 
   const readonly = view.status === "submitted";
+  const due = monthReviewDue(view.month);
   const hasWeekRecord = view.snapshot.submitted_weeks > 0 || view.snapshot.skipped > 0;
+
+  if (!readonly && !due) {
+    return (
+      <>
+        <div className="page-head">
+          <div>
+            <Link className="muted small" to="/reviews">
+              ← 返回复盘
+            </Link>
+            <h1 className="page-title">月复盘 · {fmtMonth(view.month)}</h1>
+            <p className="page-sub">这个月还没结束，结束后再写</p>
+          </div>
+        </div>
+        <section className="card">
+          <p className="empty">月复盘只写已经过完的月份。这个月会出现在下月 1 日的待处理里。</p>
+        </section>
+      </>
+    );
+  }
 
   if (readonly) {
     return (

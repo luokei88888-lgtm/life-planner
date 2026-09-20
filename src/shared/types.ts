@@ -248,6 +248,9 @@ export type ReviewList = {
   this_month: string;
   this_year: string;
   weekday: number;
+  this_week_status: "none" | "draft" | "submitted" | "skipped";
+  this_month_status: "none" | "draft" | "submitted" | "skipped";
+  this_year_status: "none" | "draft" | "submitted" | "skipped";
 };
 
 export type WeeklyReviewView = {

@@ -15,9 +15,36 @@ use crate::commands::settings;
 use crate::commands::tasks::{carry_unfinished_from, insert_task};
 use crate::db;
 use crate::domain::{self, format_date, today, week_start};
+use crate::error::REVIEW_NOT_DUE;
 
 fn conn() -> rusqlite::Connection {
     db::open_memory().expect("memory db")
+}
+
+fn last_ended_month_day() -> chrono::NaiveDate {
+    today()
+        .with_day(1)
+        .expect("month start")
+        .pred_opt()
+        .expect("previous month")
+}
+
+fn ended_month_key() -> String {
+    let day = last_ended_month_day();
+    format!("{:04}-{:02}", day.year(), day.month())
+}
+
+fn ended_year_key() -> String {
+    format!("{:04}", today().year() - 1)
+}
+
+fn next_month_key() -> String {
+    let today = today();
+    if today.month() == 12 {
+        format!("{:04}-01", today.year() + 1)
+    } else {
+        format!("{:04}-{:02}", today.year(), today.month() + 1)
+    }
 }
 
 #[test]
@@ -253,11 +280,71 @@ fn week_task_rejects_life_paused_and_uncovered_period() {
 #[test]
 fn skip_weekly_review_locks_tasks() {
     let conn = conn();
-    let day = format_date(today());
+    let week_date = week_start(today(), 1) - chrono::Duration::days(7);
+    let week = format_date(week_date);
+    let day = format_date(week_date);
     insert_task(&conn, "跳过前还能加", &day, None, None, false).unwrap();
-    let week = format_date(week_start(today(), 1));
     skip_weekly_review_record(&conn, &week).unwrap();
     assert!(insert_task(&conn, "跳过后不能加", &day, None, None, false).is_err());
+}
+
+#[test]
+fn review_writes_require_period_ended() {
+    let conn = conn();
+    let future_week = format_date(week_start(today(), 1) + chrono::Duration::days(7));
+    assert_eq!(
+        skip_weekly_review_record(&conn, &future_week)
+            .err()
+            .map(|e| e.code),
+        Some(REVIEW_NOT_DUE)
+    );
+
+    assert_eq!(
+        submit_monthly_review_record(
+            &conn,
+            &next_month_key(),
+            "推进还可以",
+            "发现节奏不对",
+            "下月少开新坑",
+            None,
+        )
+        .err()
+        .map(|e| e.code),
+        Some(REVIEW_NOT_DUE)
+    );
+
+    assert_eq!(
+        submit_yearly_review_record(
+            &conn,
+            &format!("{:04}", today().year() + 1),
+            "推进还可以",
+            "发现节奏不对",
+            "明年少开新坑",
+            None,
+        )
+        .err()
+        .map(|e| e.code),
+        Some(REVIEW_NOT_DUE)
+    );
+
+    submit_monthly_review_record(
+        &conn,
+        &ended_month_key(),
+        "推进还可以",
+        "发现节奏不对",
+        "下月少开新坑",
+        None,
+    )
+    .unwrap();
+    submit_yearly_review_record(
+        &conn,
+        &ended_year_key(),
+        "推进还可以",
+        "发现节奏不对",
+        "明年少开新坑",
+        None,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -327,6 +414,10 @@ fn weekly_monthly_yearly_reviews() {
     let yearly = yearly_view(&conn, &year).unwrap();
     assert_eq!(yearly.status, "draft");
     assert_eq!(yearly.q_progress, "还行");
+    let listed = review_list(&conn).unwrap();
+    assert_eq!(listed.this_week_status, "submitted");
+    assert_eq!(listed.this_month_status, "draft");
+    assert_eq!(listed.this_year_status, "draft");
 }
 
 #[test]
@@ -627,10 +718,10 @@ fn monthly_submit_applies_scores_then_snapshots() {
         }],
     )
     .unwrap();
-    let month = &format_date(today())[..7];
+    let month = ended_month_key();
     let view = submit_monthly_review_record(
         &conn,
-        month,
+        &month,
         "推进还可以",
         "发现节奏不对",
         "下月少开新坑",
@@ -665,10 +756,10 @@ fn monthly_submit_without_scores_keeps_radar() {
         }],
     )
     .unwrap();
-    let month = &format_date(today())[..7];
+    let month = ended_month_key();
     let view = submit_monthly_review_record(
         &conn,
-        month,
+        &month,
         "推进还可以",
         "发现节奏不对",
         "下月少开新坑",
@@ -713,16 +804,13 @@ fn month_snapshot_groups_tasks_on_parent_goals_and_freezes() {
     assert_eq!(rows.iter().find(|g| g.id == year_id).map(|g| (g.done, g.total)), Some((1, 2)));
     assert_eq!(rows.iter().find(|g| g.id == m_id).map(|g| (g.done, g.total)), Some((1, 1)));
     assert!(rows.iter().all(|g| g.id != w_id));
-    let submitted = submit_monthly_review_record(
-        &conn,
-        month,
-        "推进还可以",
-        "发现节奏不对",
-        "下月少开新坑",
-        None,
+    let snap = serde_json::to_string(&live.snapshot).unwrap();
+    conn.execute(
+        "INSERT INTO monthly_reviews (id, month, summary_snapshot, q_progress, q_insight, q_next_month, status, submitted_at)
+         VALUES ('mr-freeze', ?1, ?2, '推进还可以', '发现节奏不对', '下月少开新坑', 'submitted', datetime('now'))",
+        params![month, snap],
     )
     .unwrap();
-    assert_eq!(submitted.snapshot.goal_tasks.len(), rows.len());
     insert_task(&conn, "提交后才写的", &day, Some(&year_id), None, false).unwrap();
     let frozen = monthly_view(&conn, month).unwrap();
     let year_row = frozen
@@ -965,7 +1053,7 @@ fn yearly_submit_applies_scores_then_snapshots() {
         }],
     )
     .unwrap();
-    let year = format!("{:04}", today().year());
+    let year = ended_year_key();
     let view = submit_yearly_review_record(
         &conn,
         &year,
@@ -1003,7 +1091,7 @@ fn yearly_submit_without_scores_keeps_radar() {
         }],
     )
     .unwrap();
-    let year = format!("{:04}", today().year());
+    let year = ended_year_key();
     let view = submit_yearly_review_record(
         &conn,
         &year,

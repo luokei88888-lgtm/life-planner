@@ -69,6 +69,26 @@ export function daysInMonth(ym: string) {
   return new Date(y, m, 0).getDate();
 }
 
+export function lastIsoOfMonth(ym: string) {
+  return `${ym}-${pad(daysInMonth(ym))}`;
+}
+
+export function weekReviewDue(weekStart: string, today = isoDate()) {
+  return today >= addDays(weekStart, 6);
+}
+
+export function monthReviewDue(ym: string, today = isoDate()) {
+  return today >= lastIsoOfMonth(ym);
+}
+
+export function yearReviewDue(year: string | number, today = isoDate()) {
+  return today >= `${year}-12-31`;
+}
+
+export function weekReviewWaitLabel(weekStart: string) {
+  return `${weekdayLabel(addDays(weekStart, 6))}再写`;
+}
+
 export function fmtMonth(ym: string) {
   const [y, m] = ym.split("-");
   return `${y}年${Number(m)}月`;
