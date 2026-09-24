@@ -33,6 +33,29 @@ export function AppShell() {
     return () => unlisten?.();
   }, []);
 
+  useEffect(() => {
+    let timer = 0;
+    function onScroll(event: Event) {
+      const node = event.target;
+      if (!(node instanceof HTMLElement)) return;
+      if (
+        !node.matches(
+          ".main, .nav, .modal, .drawer, .home-today-list, .emoji-grid, .menu-select-panel",
+        )
+      ) {
+        return;
+      }
+      node.classList.add("is-scrolling");
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => node.classList.remove("is-scrolling"), 800);
+    }
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("scroll", onScroll, true);
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   async function chooseClose(action: "tray" | "quit") {
     setCloseBusy(true);
     try {
