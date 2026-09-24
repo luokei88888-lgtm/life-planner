@@ -176,6 +176,13 @@ pub fn is_keep_backups(value: i64) -> bool {
     catalog().keep_backup_counts.contains(&value)
 }
 
+pub fn normalize_close_behavior(value: &str) -> Result<String, String> {
+    match value.trim() {
+        "ask" | "tray" | "quit" => Ok(value.trim().to_string()),
+        _ => Err("关闭窗口时只支持询问、隐藏到托盘或退出".into()),
+    }
+}
+
 pub fn is_reminder_time(value: &str) -> bool {
     normalize_reminder_time(value).is_ok()
 }

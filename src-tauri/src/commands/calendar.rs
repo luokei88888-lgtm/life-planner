@@ -175,8 +175,8 @@ pub fn export_ics(db: State<'_, Db>) -> Result<PathResult, AppError> {
 }
 
 #[tauri::command]
-pub fn fire_due_reminders(db: State<'_, Db>) -> Result<ReminderEvent, AppError> {
-    db::with_conn(&db, |conn| {
+pub fn fire_due_reminders(app: AppHandle, db: State<'_, Db>) -> Result<ReminderEvent, AppError> {
+    let event = db::with_conn(&db, |conn| {
         let settings = settings::load(conn)?;
         if !settings.reminder_enabled {
             return Ok(ReminderEvent {
@@ -259,5 +259,9 @@ pub fn fire_due_reminders(db: State<'_, Db>) -> Result<ReminderEvent, AppError> 
             title: "今日提醒".into(),
             body,
         })
-    })
+    })?;
+    if event.due {
+        let _ = crate::window_ctrl::restore_main(&app);
+    }
+    Ok(event)
 }

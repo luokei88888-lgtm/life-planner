@@ -39,6 +39,13 @@ export const GOAL_WHY_MAX = catalog.goalWhyMax;
 export const ACTIVE_LIMITS = catalog.activeLimits;
 export const TASK_TITLE_MAX = catalog.taskTitleMax;
 export const HOME_TODAY_LIST_MAX = catalog.homeTodayListMax;
+export const CLOSE_BEHAVIORS = ["ask", "tray", "quit"] as const satisfies readonly (typeof catalog.closeBehaviors)[number][];
+export type CloseBehavior = (typeof CLOSE_BEHAVIORS)[number];
+export const CLOSE_BEHAVIOR_LABEL: Record<CloseBehavior, string> = {
+  ask: "每次询问",
+  tray: "隐藏到托盘",
+  quit: "退出程序",
+};
 export const HABIT_TITLE_MAX = catalog.habitTitleMax;
 export const HABIT_BACKFILL_DAYS = catalog.habitBackfillDays;
 export const HABIT_KINDS = catalog.habitKinds;

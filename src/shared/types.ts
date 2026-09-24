@@ -22,6 +22,7 @@ export type Settings = {
   sync_dir: string;
   last_sync_at: string | null;
   started_on: string | null;
+  close_behavior: "ask" | "tray" | "quit";
 };
 
 export type Health = {

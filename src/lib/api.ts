@@ -60,12 +60,16 @@ export const api = {
     cmd<Settings>("set_reminder_enabled", { enabled }),
   setReminderTime: (reminderTime: string) =>
     cmd<Settings>("set_reminder_time", { reminderTime }),
+  setCloseBehavior: (closeBehavior: Settings["close_behavior"]) =>
+    cmd<Settings>("set_close_behavior", { closeBehavior }),
   setSyncDir: (syncDir: string) => cmd<Settings>("set_sync_dir", { syncDir }),
   markStarted: () => cmd<Settings>("mark_started"),
   pickSyncDir: () => cmd<PathResult>("pick_sync_dir"),
   syncNow: () => cmd<Settings>("sync_now"),
   exportIcs: () => cmd<PathResult>("export_ics"),
   fireDueReminders: () => cmd<ReminderEvent>("fire_due_reminders"),
+  hideToTray: () => cmd<void>("hide_to_tray_cmd"),
+  quitApp: () => cmd<void>("quit_app"),
   backupNow: () => cmd<BackupResult>("backup_now"),
   exportJson: () => cmd<string>("export_json"),
   importJson: (payload: string) => cmd<BackupResult>("import_json", { payload }),

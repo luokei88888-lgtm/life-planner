@@ -94,6 +94,28 @@ fn review_pending_includes_closed_week_after_start() {
 }
 
 #[test]
+fn close_behavior_persists_and_rejects_unknown() {
+    assert_eq!(domain::normalize_close_behavior("ask").unwrap(), "ask");
+    assert_eq!(domain::normalize_close_behavior("tray").unwrap(), "tray");
+    assert_eq!(domain::normalize_close_behavior("quit").unwrap(), "quit");
+    assert!(domain::normalize_close_behavior("hide").is_err());
+
+    let conn = conn();
+    assert_eq!(settings::load(&conn).unwrap().close_behavior, "ask");
+    settings::set_close_behavior_record(&conn, "tray").unwrap();
+    assert_eq!(settings::load(&conn).unwrap().close_behavior, "tray");
+    let json = backup::export_json(&conn).unwrap();
+    assert!(json.contains("close_behavior"));
+    assert!(json.contains("tray"));
+    settings::upsert(&conn, "close_behavior", "nope").unwrap();
+    assert_eq!(settings::load(&conn).unwrap().close_behavior, "ask");
+    let err = settings::set_close_behavior_record(&conn, "nope")
+        .err()
+        .expect("unknown close behavior should fail");
+    assert_eq!(err.code, crate::error::SETTINGS_INVALID);
+}
+
+#[test]
 fn reminder_time_accepts_seconds() {
     assert_eq!(domain::normalize_reminder_time("09:00").unwrap(), "09:00");
     assert_eq!(domain::normalize_reminder_time("9:5").unwrap(), "09:05");
@@ -604,6 +626,7 @@ fn settings_themes_and_json_backup_roundtrip() {
     assert_eq!(loaded.theme, "moss");
     assert!(loaded.reminder_enabled);
     assert_eq!(loaded.reminder_time, "09:00");
+    assert_eq!(loaded.close_behavior, "ask");
 
     insert_goal(&conn, "人生方向", "完整版备份必须带上人生目标", "a6", "life", None, 2026).unwrap();
     let json = backup::export_json(&conn).unwrap();
@@ -1207,6 +1230,7 @@ fn factory_reset_wipes_data_reseeds_and_does_not_owe_past_reviews() {
     assert_eq!(health_score, None);
     assert!(!loaded.onboarded);
     assert_eq!(loaded.theme, "dark");
+    assert_eq!(loaded.close_behavior, "ask");
     assert!(loaded.started_on.is_none());
     let list = review_list(&conn).unwrap();
     assert!(

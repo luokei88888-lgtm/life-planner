@@ -1,16 +1,56 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { listen } from "@tauri-apps/api/event";
+import { api, ApiError } from "../../lib/api";
 import { NAV, THEMES, type ThemeId } from "../../shared/constants";
 import { Select } from "../../ui/Select";
+import { Modal } from "../../ui/Modal";
 import { useApp } from "../AppContext";
 
 export function AppShell() {
-  const { settings, error, toast, reminder, dismissReminder } = useApp();
+  const { settings, error, toast, reminder, dismissReminder, applySettings, notify } = useApp();
   const location = useLocation();
+  const [closeAsk, setCloseAsk] = useState(false);
+  const [rememberClose, setRememberClose] = useState(false);
+  const [closeBusy, setCloseBusy] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme;
   }, [settings.theme]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen("close-asked", () => {
+      setRememberClose(false);
+      setCloseAsk(true);
+    })
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {
+        /* 浏览器预览没有窗口关闭事件 */
+      });
+    return () => unlisten?.();
+  }, []);
+
+  async function chooseClose(action: "tray" | "quit") {
+    setCloseBusy(true);
+    try {
+      if (rememberClose) {
+        applySettings(await api.setCloseBehavior(action));
+      }
+      if (action === "tray") {
+        await api.hideToTray();
+        setCloseAsk(false);
+      } else {
+        await api.quitApp();
+      }
+    } catch (e) {
+      notify(e instanceof ApiError ? e.message : "无法完成关闭");
+    } finally {
+      setCloseBusy(false);
+    }
+  }
 
   return (
     <>
@@ -79,7 +119,47 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-          {toast ? <div id="toast-root"><div className="toast">{toast}</div></div> : null}
+      {toast ? (
+        <div id="toast-root">
+          <div className="toast">{toast}</div>
+        </div>
+      ) : null}
+      {closeAsk ? (
+        <Modal onClose={() => { if (!closeBusy) setCloseAsk(false); }}>
+          <h3>关闭窗口</h3>
+          <p className="muted">隐藏后程序还在托盘里，点图标可以再打开。退出才是真正关掉。</p>
+          <label className="check-line">
+            <input
+              type="checkbox"
+              checked={rememberClose}
+              disabled={closeBusy}
+              onChange={(e) => setRememberClose(e.target.checked)}
+            />
+            下次不再询问
+          </label>
+          <div className="modal-foot">
+            <button className="btn" type="button" disabled={closeBusy} onClick={() => setCloseAsk(false)}>
+              取消
+            </button>
+            <button
+              className="btn danger"
+              type="button"
+              disabled={closeBusy}
+              onClick={() => void chooseClose("quit")}
+            >
+              退出程序
+            </button>
+            <button
+              className="btn primary"
+              type="button"
+              disabled={closeBusy}
+              onClick={() => void chooseClose("tray")}
+            >
+              隐藏到托盘
+            </button>
+          </div>
+        </Modal>
+      ) : null}
     </>
   );
 }

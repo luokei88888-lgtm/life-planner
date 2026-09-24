@@ -19,6 +19,7 @@ pub struct SettingsMap {
     pub sync_dir: String,
     pub last_sync_at: Option<String>,
     pub started_on: Option<String>,
+    pub close_behavior: String,
 }
 
 pub(crate) fn load(conn: &Connection) -> Result<SettingsMap, AppError> {
@@ -65,6 +66,10 @@ pub(crate) fn load(conn: &Connection) -> Result<SettingsMap, AppError> {
             .get("started_on")
             .cloned()
             .filter(|v| domain::parse_date(v).is_ok()),
+        close_behavior: map
+            .get("close_behavior")
+            .and_then(|v| domain::normalize_close_behavior(v).ok())
+            .unwrap_or_else(|| "ask".into()),
     })
 }
 
@@ -217,6 +222,21 @@ pub fn normalize_sync_dir(raw: &str) -> Result<String, AppError> {
         return Err(AppError::new(SETTINGS_INVALID, "同步目录不存在"));
     }
     Ok(trimmed.to_string())
+}
+
+pub(crate) fn set_close_behavior_record(
+    conn: &Connection,
+    value: &str,
+) -> Result<SettingsMap, AppError> {
+    let value = domain::normalize_close_behavior(value)
+        .map_err(|message| AppError::new(SETTINGS_INVALID, message))?;
+    upsert(conn, "close_behavior", &value)?;
+    load(conn)
+}
+
+#[tauri::command]
+pub fn set_close_behavior(db: State<'_, Db>, close_behavior: String) -> Result<SettingsMap, AppError> {
+    db::with_conn(&db, |conn| set_close_behavior_record(conn, &close_behavior))
 }
 
 #[tauri::command]

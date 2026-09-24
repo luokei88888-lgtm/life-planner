@@ -26,6 +26,7 @@ const DEFAULT_SETTINGS: &[(&str, &str)] = &[
     ("last_reminder_date", ""),
     ("last_sync_at", ""),
     ("started_on", ""),
+    ("close_behavior", "ask"),
 ];
 
 pub fn run(conn: &Connection) -> Result<(), AppError> {

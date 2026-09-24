@@ -3,6 +3,7 @@ mod commands;
 mod db;
 mod domain;
 mod error;
+mod window_ctrl;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -11,6 +12,7 @@ pub fn run() {
             db::init(&app.handle())?;
             Ok(())
         })
+        .on_window_event(|window, event| window_ctrl::on_window_event(window, event))
         .invoke_handler(tauri::generate_handler![
             commands::health::health,
             commands::settings::get_settings,
@@ -21,6 +23,7 @@ pub fn run() {
             commands::settings::set_reminder_enabled,
             commands::settings::set_reminder_time,
             commands::settings::set_sync_dir,
+            commands::settings::set_close_behavior,
             commands::settings::mark_started,
             commands::backup::backup_now,
             commands::backup::export_json,
@@ -30,6 +33,8 @@ pub fn run() {
             commands::calendar::sync_now,
             commands::calendar::export_ics,
             commands::calendar::fire_due_reminders,
+            window_ctrl::hide_to_tray_cmd,
+            window_ctrl::quit_app,
             commands::areas::list_areas,
             commands::areas::list_archived_areas,
             commands::areas::create_area,

@@ -25,6 +25,7 @@ const SETTING_KEYS: &[&str] = &[
     "last_reminder_date",
     "last_sync_at",
     "started_on",
+    "close_behavior",
 ];
 
 #[derive(Serialize, Deserialize, Default)]
@@ -697,6 +698,9 @@ fn validate_setting(row: &SettingRow) -> Result<(), AppError> {
         {
             Err(fail("日期无效"))
         }
+        "close_behavior" => domain::normalize_close_behavior(&row.value)
+            .map(|_| ())
+            .map_err(|message| fail(message)),
         _ => Ok(()),
     }
 }

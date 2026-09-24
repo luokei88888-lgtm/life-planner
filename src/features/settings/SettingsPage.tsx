@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { IMPORT_JSON_MAX, KEEP_BACKUP_COUNTS, THEMES } from "../../shared/constants";
+import { IMPORT_JSON_MAX, KEEP_BACKUP_COUNTS, THEMES, CLOSE_BEHAVIORS, CLOSE_BEHAVIOR_LABEL } from "../../shared/constants";
 import { isoDate } from "../../shared/time";
 import type { ThemeId } from "../../shared/constants";
 import type { Health } from "../../shared/types";
@@ -150,8 +150,32 @@ export function SettingsPage() {
           </div>
           <div className="setting-row">
             <div>
+              <div>关闭窗口时</div>
+              <div className="desc">点右上角关闭、任务栏关闭或 Alt+F4 时的行为。藏到托盘后，提醒到期会把窗口拉回来。</div>
+            </div>
+            <Select
+              style={{ width: 176 }}
+              aria-label="关闭窗口时"
+              value={settings.close_behavior}
+              disabled={busy}
+              options={CLOSE_BEHAVIORS.map((id) => ({
+                value: id,
+                label: CLOSE_BEHAVIOR_LABEL[id],
+              }))}
+              onChange={(next) => {
+                const value = CLOSE_BEHAVIORS.find((id) => id === next);
+                if (!value) return;
+                void run(async () => {
+                  applySettings(await api.setCloseBehavior(value));
+                  notify("关闭行为已保存");
+                });
+              }}
+            />
+          </div>
+          <div className="setting-row">
+            <div>
               <div>每日提醒</div>
-              <div className="desc">应用运行时，到点提醒今天还没标记的习惯和今日待办</div>
+              <div className="desc">窗口开着或藏在托盘时，到点提醒今天还没标记的习惯和今日待办</div>
             </div>
             <button
               type="button"

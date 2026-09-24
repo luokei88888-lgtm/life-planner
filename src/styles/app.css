@@ -709,6 +709,21 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   filter: invert(0.82) sepia(0.25) saturate(1.4) hue-rotate(6deg);
 }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.check-line input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  flex: 0 0 14px;
+}
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .field label { font-size: 13px; font-weight: 500; }
 

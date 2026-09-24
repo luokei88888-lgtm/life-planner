@@ -30,6 +30,7 @@ const DEFAULT_SETTINGS: Settings = {
   sync_dir: "",
   last_sync_at: null,
   started_on: null,
+  close_behavior: "ask",
 };
 
 const AppContext = createContext<AppState | null>(null);
