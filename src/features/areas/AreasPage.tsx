@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { AREA_COUNT_MAX, AREA_NAME_MAX, AREA_PALETTE, AREA_SCORE_DEFAULT, AREA_SCORE_MAX, AREA_SCORE_MIN, areaScorePercent } from "../../shared/constants";
+import { AREA_NAME_MAX, AREA_PALETTE, AREA_SCORE_DEFAULT, AREA_SCORE_MAX, AREA_SCORE_MIN, areaScorePercent } from "../../shared/constants";
 import type { Area } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
 import { Select } from "../../ui/Select";
 import { RadarChart } from "./RadarChart";
 
-type FormState = { id?: string; name: string; color: string };
+type FormState = { id: string; name: string; color: string };
 
 export function AreasPage() {
   const { areas, replaceAreas, notify, reload } = useApp();
@@ -74,73 +74,66 @@ export function AreasPage() {
       <div className="page-head">
         <div>
           <h1 className="page-title">维度与人生之轮</h1>
-          <p className="page-sub">给每个维度的现状满意度打分（{AREA_SCORE_MIN}-{AREA_SCORE_MAX}），看清哪里失衡。最近打分：{lastScored}</p>
+          <p className="page-sub">
+            固定 8 个生命之轮维度，可改名称和颜色。给每个维度的现状满意度打分（{AREA_SCORE_MIN}-{AREA_SCORE_MAX}）。最近打分：{lastScored}
+          </p>
         </div>
         <div className="head-actions">
-          <button
-            className="btn"
-            disabled={busy || areas.length >= AREA_COUNT_MAX}
-            onClick={() => setForm({ name: "", color: AREA_PALETTE[0] })}
-          >
-            新建维度
-          </button>
           <button className="btn primary" disabled={busy || areas.length === 0} onClick={openScore}>
             {scoreAction}
           </button>
         </div>
       </div>
 
-      <div className="row mb-16">
-        <button type="button" className={`chip ${tab === "active" ? "on" : ""}`} onClick={() => setTab("active")}>
-          进行中
-        </button>
-        <button type="button" className={`chip ${tab === "archived" ? "on" : ""}`} onClick={() => setTab("archived")}>
-          已归档{archived.length ? ` (${archived.length})` : ""}
-        </button>
-      </div>
+      {archived.length > 0 ? (
+        <div className="row mb-16">
+          <button type="button" className={`chip ${tab === "active" ? "on" : ""}`} onClick={() => setTab("active")}>
+            进行中
+          </button>
+          <button type="button" className={`chip ${tab === "archived" ? "on" : ""}`} onClick={() => setTab("archived")}>
+            已归档 ({archived.length})
+          </button>
+        </div>
+      ) : null}
 
-      {tab === "archived" ? (
+      {tab === "archived" && archived.length > 0 ? (
         <section className="card">
-          {archived.length ? (
-            archived.map((a) => (
-              <div className="area-card" key={a.id}>
-                <span className="bar" style={{ background: a.color }} />
-                <div style={{ flex: 1 }}>
-                  <div className="row between">
-                    <span className="strong">{a.name}</span>
-                    <span className="score">
-                      {a.score ?? "—"}
-                      <span className="score-scale">/{AREA_SCORE_MAX}</span>
-                    </span>
-                  </div>
-                  <div className="row mt-8">
-                    <button
-                      className="btn sm primary"
-                      disabled={busy}
-                      onClick={() => {
-                        void (async () => {
-                          setBusy(true);
-                          try {
-                            setArchived(await api.restoreArea(a.id));
-                            await reload();
-                            notify("维度已恢复");
-                          } catch (e) {
-                            notify(e instanceof ApiError ? e.message : "恢复失败");
-                          } finally {
-                            setBusy(false);
-                          }
-                        })();
-                      }}
-                    >
-                      恢复
-                    </button>
-                  </div>
+          {archived.map((a) => (
+            <div className="area-card" key={a.id}>
+              <span className="bar" style={{ background: a.color }} />
+              <div style={{ flex: 1 }}>
+                <div className="row between">
+                  <span className="strong">{a.name}</span>
+                  <span className="score">
+                    {a.score ?? "—"}
+                    <span className="score-scale">/{AREA_SCORE_MAX}</span>
+                  </span>
+                </div>
+                <div className="row mt-8">
+                  <button
+                    className="btn sm primary"
+                    disabled={busy}
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(true);
+                        try {
+                          setArchived(await api.restoreArea(a.id));
+                          await reload();
+                          notify("维度已恢复");
+                        } catch (e) {
+                          notify(e instanceof ApiError ? e.message : "恢复失败");
+                        } finally {
+                          setBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    恢复
+                  </button>
                 </div>
               </div>
-            ))
-          ) : (
-            <p className="empty">没有已归档的维度。</p>
-          )}
+            </div>
+          ))}
         </section>
       ) : (
       <div className="grid-2">
@@ -169,7 +162,11 @@ export function AreasPage() {
                   <div style={{ width: areaScorePercent(a.score ?? 0), background: a.color }} />
                 </div>
                 <div className="row mt-8">
-                  <button className="btn sm" disabled={busy} onClick={() => setForm({ id: a.id, name: a.name, color: a.color })}>
+                  <button
+                    className="btn sm"
+                    disabled={busy}
+                    onClick={() => setForm({ id: a.id, name: a.name, color: a.color })}
+                  >
                     编辑
                   </button>
                   <Link className="btn sm ghost" to={`/goals?area=${a.id}`}>
@@ -225,7 +222,7 @@ export function AreasPage() {
 
       {form ? (
         <Modal onClose={() => setForm(null)}>
-          <h3>{form.id ? "编辑维度" : "新建维度"}</h3>
+          <h3>编辑维度</h3>
           <div className="field">
             <label htmlFor="af-name">名称</label>
             <input
@@ -245,38 +242,20 @@ export function AreasPage() {
               onChange={(color) => setForm({ ...form, color })}
             />
           </div>
-          <div className="modal-foot" style={{ justifyContent: "space-between" }}>
-            {form.id ? (
-              <button
-                className="btn danger"
-                disabled={busy}
-                onClick={() => void run(() => api.archiveArea(form.id!), "维度已归档或删除")}
-              >
-                删除 / 归档
-              </button>
-            ) : (
-              <span />
-            )}
-            <div className="btn-group">
-              <button className="btn" onClick={() => setForm(null)}>
-                取消
-              </button>
-              <button
-                className="btn primary"
-                disabled={busy || !form.name.trim()}
-                onClick={() => {
-                  const name = form.name.trim();
-                  const color = form.color;
-                  if (form.id) {
-                    void run(() => api.updateArea(form.id!, name, color), "维度已保存");
-                  } else {
-                    void run(() => api.createArea(name, color), "维度已创建");
-                  }
-                }}
-              >
-                保存
-              </button>
-            </div>
+          <div className="modal-foot">
+            <button className="btn" onClick={() => setForm(null)}>
+              取消
+            </button>
+            <button
+              className="btn primary"
+              disabled={busy || !form.name.trim()}
+              onClick={() => {
+                const name = form.name.trim();
+                void run(() => api.updateArea(form.id, name, form.color), "维度已保存");
+              }}
+            >
+              保存
+            </button>
           </div>
         </Modal>
       ) : null}

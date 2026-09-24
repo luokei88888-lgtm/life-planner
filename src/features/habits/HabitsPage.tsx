@@ -151,7 +151,7 @@ export function HabitsPage() {
             const area = areas.find((a) => a.id === h.area_id);
             const kindId = habitKindOf(h.kind);
             return (
-              <div className={`habit-row ${h.is_active ? "" : "muted"}`} key={h.id}>
+              <div className={`habit-row kind-${kindId} ${h.is_active ? "" : "muted"}`} key={h.id}>
                 <Link className="habit-main" to={`/habits/${h.id}`}>
                   <span className="dot" style={{ background: area?.color ?? "var(--muted)" }} />
                   <div className="h-title">

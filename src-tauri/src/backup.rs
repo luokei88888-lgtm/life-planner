@@ -752,7 +752,10 @@ fn validate(doc: &ExportDoc) -> Result<(), AppError> {
         }
         domain::normalize_goal_title(&goal.title)
             .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
-        domain::normalize_goal_why(&goal.why)
+        domain::normalize_goal_why(
+            &goal.why,
+            goal.parent_id.as_deref().filter(|v| !v.is_empty()).is_some(),
+        )
             .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
         if !domain::is_goal_level(&goal.level) {
             return Err(fail("目标层级无效"));
@@ -785,8 +788,6 @@ fn validate(doc: &ExportDoc) -> Result<(), AppError> {
             if parent_goal.level != "life" && parent_goal.area_id != goal.area_id {
                 return Err(fail("下级必须和上级在同一维度"));
             }
-        } else if domain::parent_required(&goal.level) {
-            return Err(fail("该层级目标必须有上级"));
         }
     }
 

@@ -4,7 +4,9 @@ use tauri::State;
 
 use crate::db::{self, Db};
 use crate::domain::{self, catalog};
-use crate::error::{AppError, AREA_NAME_TAKEN, NOT_FOUND, VALIDATION_FAILED};
+use crate::error::{AppError, AREA_FIXED, AREA_NAME_TAKEN, NOT_FOUND, VALIDATION_FAILED};
+
+const WHEEL_LOCKED: &str = "生命之轮是固定的 8 个维度，不能增删";
 
 #[derive(Serialize)]
 pub struct Area {
@@ -90,46 +92,13 @@ pub fn list_archived_areas(db: State<'_, Db>) -> Result<Vec<Area>, AppError> {
     db::with_conn(&db, |conn| list_all_by_archive(conn, true))
 }
 
-#[tauri::command]
-pub fn create_area(db: State<'_, Db>, name: String, color: String) -> Result<Vec<Area>, AppError> {
-    let name = domain::normalize_area_name(&name)
-        .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
-    if !domain::is_area_color(&color) {
-        return Err(AppError::new(VALIDATION_FAILED, "颜色不在允许的色板内"));
-    }
+pub(crate) fn reject_area_mutation() -> AppError {
+    AppError::new(AREA_FIXED, WHEEL_LOCKED)
+}
 
-    db::with_conn(&db, |conn| {
-        let count: i64 =
-            conn.query_row("SELECT COUNT(1) FROM areas WHERE is_archived = 0", [], |row| {
-                row.get(0)
-            })?;
-        if count >= catalog().area_count_max {
-            return Err(AppError::new(
-                VALIDATION_FAILED,
-                format!("维度最多 {} 个", catalog().area_count_max),
-            ));
-        }
-        if name_taken(conn, &name, None)? {
-            return Err(AppError::new(AREA_NAME_TAKEN, "已有同名维度"));
-        }
-        let next_sort: i64 = conn.query_row(
-            "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM areas",
-            [],
-            |row| row.get(0),
-        )?;
-        let id = format!(
-            "a{:x}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0)
-        );
-        conn.execute(
-            "INSERT INTO areas (id, name, color, sort_order) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![id, name, color, next_sort],
-        )?;
-        list_active(conn)
-    })
+#[tauri::command]
+pub fn create_area(_db: State<'_, Db>, _name: String, _color: String) -> Result<Vec<Area>, AppError> {
+    Err(reject_area_mutation())
 }
 
 #[tauri::command]
@@ -159,30 +128,8 @@ pub fn update_area(
 }
 
 #[tauri::command]
-pub fn archive_area(db: State<'_, Db>, id: String) -> Result<Vec<Area>, AppError> {
-    db::with_conn(&db, |conn| {
-        require_active(conn, &id)?;
-        let goals: i64 = conn.query_row(
-            "SELECT COUNT(1) FROM goals WHERE area_id = ?1",
-            [&id],
-            |row| row.get(0),
-        )?;
-        let habits: i64 = conn.query_row(
-            "SELECT COUNT(1) FROM habits WHERE area_id = ?1",
-            [&id],
-            |row| row.get(0),
-        )?;
-        if goals + habits > 0 {
-            conn.execute(
-                "UPDATE areas SET is_archived = 1 WHERE id = ?1",
-                [&id],
-            )?;
-        } else {
-            conn.execute("UPDATE notes SET area_id = NULL WHERE area_id = ?1", [&id])?;
-            conn.execute("DELETE FROM areas WHERE id = ?1", [&id])?;
-        }
-        list_active(conn)
-    })
+pub fn archive_area(_db: State<'_, Db>, _id: String) -> Result<Vec<Area>, AppError> {
+    Err(reject_area_mutation())
 }
 
 #[tauri::command]

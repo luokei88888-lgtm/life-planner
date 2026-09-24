@@ -1,5 +1,6 @@
-import { LEVEL_LABEL, type GoalLevel } from "../../shared/constants";
+import { GOAL_LEVELS } from "../../shared/constants";
 import type { SnapGoalTasks } from "../../shared/types";
+import { LevelTag } from "../../ui/levelTone";
 
 export function GoalTaskEvidence({
   items,
@@ -20,16 +21,19 @@ export function GoalTaskEvidence({
           {done}/{total}
         </span>
       </div>
-      {rows.map((row) => (
-        <div className="row mb-8" key={row.id}>
-          <span className="dot" style={{ background: row.color }} />
-          <span className="tag level">{LEVEL_LABEL[row.level as GoalLevel] ?? row.level}</span>
-          <span style={{ flex: 1 }}>{row.title}</span>
-          <span className="muted small">
-            {row.done}/{row.total}
-          </span>
-        </div>
-      ))}
+      {rows.map((row) => {
+        const level = GOAL_LEVELS.find((item) => item === row.level);
+        return (
+          <div className="row mb-8" key={row.id}>
+            <span className="dot" style={{ background: row.color }} />
+            {level ? <LevelTag level={level} /> : <span className="tag level">{row.level}</span>}
+            <span style={{ flex: 1 }}>{row.title}</span>
+            <span className="muted small">
+              {row.done}/{row.total}
+            </span>
+          </div>
+        );
+      })}
     </section>
   );
 }

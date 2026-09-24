@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
-import { LEVEL_LABEL, TASK_TITLE_MAX } from "../../shared/constants";
+import { TASK_TITLE_MAX } from "../../shared/constants";
 import {
   addDays,
   dayOptions,
@@ -17,6 +17,7 @@ import type { Goal, Task, WeekPlan } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
 import { Select } from "../../ui/Select";
+import { GoalProgress, LevelTag } from "../../ui/levelTone";
 import { TaskRow } from "./TaskRow";
 import { isTaskAncestorGoal, isTaskWeekGoal, advancingGoals, taskGoalSelectOptions } from "./taskGoals";
 
@@ -64,7 +65,7 @@ export function WeekPage() {
           return days.includes(today) ? today : "";
         });
       } catch (e) {
-        if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载本周计划");
+        if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载任务");
       }
     })();
     return () => {
@@ -102,7 +103,7 @@ export function WeekPage() {
   const prev = plan?.prev_unfinished ?? [];
   const showCarry = weekStart >= thisWeek && prev.length > 0;
   const heading =
-    offset === 0 ? "本周计划" : offset === -1 ? "上周" : offset === 1 ? "下周计划" : "周计划";
+    offset === 0 ? "本周" : offset === -1 ? "上周" : offset === 1 ? "下周" : "任务";
 
   useEffect(() => {
     const ok =
@@ -209,15 +210,13 @@ export function WeekPage() {
                     <div className="body">
                       <div className="title">
                         {g.level !== "week" ? (
-                          <span className="tag level">{LEVEL_LABEL[g.level]}</span>
+                          <LevelTag level={g.level} />
                         ) : null}{" "}
                         {g.title}
                       </div>
                       <div className="row mt-8">
                         <div style={{ flex: 1 }}>
-                          <div className="progress thin">
-                            <div style={{ width: `${g.progress}%` }} />
-                          </div>
+                          <GoalProgress level={g.level} value={g.progress} />
                         </div>
                         <span className="muted small">{g.progress}%</span>
                         {g.week_task_total > 0 ? (
@@ -257,6 +256,7 @@ export function WeekPage() {
           {locked ? null : (
             <form
               className="inline-form mb-16"
+              autoComplete="off"
               onSubmit={(e) => {
                 e.preventDefault();
                 void addTask();
@@ -297,9 +297,7 @@ export function WeekPage() {
                 <div className="task-group-title">
                   <span className="dot" style={{ background: color }} />
                   {g.title}
-                  {g.level !== "week" ? (
-                    <span className="tag level">{LEVEL_LABEL[g.level]}</span>
-                  ) : null}
+                  {g.level !== "week" ? <LevelTag level={g.level} /> : null}
                   <span className="muted small">
                     {ts.filter((t) => t.status === "done").length}/{ts.length}
                   </span>

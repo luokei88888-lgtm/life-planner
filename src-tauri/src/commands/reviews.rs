@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::commands::areas::{apply_scores, AreaScoreInput};
-use crate::commands::notes::{self, Note};
 use crate::commands::tasks::{carry_unfinished_from, insert_task, list_unfinished};
 use crate::db::{self, Db};
 use crate::domain::{
@@ -172,7 +171,6 @@ pub struct WeeklyReviewView {
     pub satisfaction: i64,
     pub submitted_at: Option<String>,
     pub snapshot: WeekSnapshot,
-    pub notes: Vec<Note>,
     pub next_tasks_created: bool,
     pub unfinished: Vec<ReviewTodo>,
 }
@@ -197,7 +195,6 @@ pub struct MonthlyReviewView {
     pub submitted_at: Option<String>,
     pub snapshot: MonthSnapshot,
     pub goals: Vec<MonthGoal>,
-    pub notes: Vec<Note>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -233,7 +230,6 @@ pub struct YearlyReviewView {
     pub submitted_at: Option<String>,
     pub snapshot: YearSnapshot,
     pub goals: Vec<MonthGoal>,
-    pub notes: Vec<Note>,
 }
 
 fn week_starts_on(conn: &Connection) -> Result<i64, AppError> {
@@ -271,27 +267,6 @@ fn parse_month(raw: &str) -> Result<(i32, u32, String), AppError> {
 
 fn locked(status: &str) -> bool {
     status == "submitted" || status == "skipped"
-}
-
-fn notes_for_week(conn: &Connection, week: &str) -> Result<Vec<Note>, AppError> {
-    let start = parse_date(week).map_err(|m| AppError::new(VALIDATION_FAILED, m))?;
-    notes::list_in_range(conn, week, &format_date(add_days(start, 6)))
-}
-
-fn notes_for_month(conn: &Connection, month: &str) -> Result<Vec<Note>, AppError> {
-    let (year, mon, key) = parse_month(month)?;
-    notes::list_in_range(
-        conn,
-        &format!("{key}-01"),
-        &format_date(last_day_of_month(year, mon)),
-    )
-}
-
-fn notes_for_year(conn: &Connection, year: &str) -> Result<Vec<Note>, AppError> {
-    if year.len() != 4 || year.parse::<i32>().is_err() {
-        return Err(AppError::new(VALIDATION_FAILED, "年份无效"));
-    }
-    notes::list_in_range(conn, &format!("{year}-01-01"), &format!("{year}-12-31"))
 }
 
 fn week_snapshot(conn: &Connection, week: &str) -> Result<WeekSnapshot, AppError> {
@@ -746,7 +721,6 @@ pub(crate) fn yearly_view(conn: &Connection, year: &str) -> Result<YearlyReviewV
                 submitted_at,
                 snapshot,
                 goals,
-                notes: notes_for_year(conn, year)?,
             })
         }
         None => Ok(YearlyReviewView {
@@ -758,7 +732,6 @@ pub(crate) fn yearly_view(conn: &Connection, year: &str) -> Result<YearlyReviewV
             submitted_at: None,
             snapshot: year_snapshot(conn, year)?,
             goals,
-            notes: notes_for_year(conn, year)?,
         }),
     }
 }
@@ -901,7 +874,6 @@ pub(crate) fn weekly_view(conn: &Connection, week: &str) -> Result<WeeklyReviewV
                 } else {
                     week_snapshot(conn, week)?
                 },
-                notes: notes_for_week(conn, week)?,
                 next_tasks_created: next_tasks_created == 1,
                 unfinished: review_todos(conn, week)?,
             })
@@ -916,7 +888,6 @@ pub(crate) fn weekly_view(conn: &Connection, week: &str) -> Result<WeeklyReviewV
             satisfaction: 7,
             submitted_at: None,
             snapshot: week_snapshot(conn, week)?,
-            notes: notes_for_week(conn, week)?,
             next_tasks_created: false,
             unfinished: review_todos(conn, week)?,
         }),
@@ -966,7 +937,6 @@ pub(crate) fn monthly_view(conn: &Connection, month: &str) -> Result<MonthlyRevi
                 submitted_at,
                 snapshot,
                 goals,
-                notes: notes_for_month(conn, month)?,
             })
         }
         None => Ok(MonthlyReviewView {
@@ -978,7 +948,6 @@ pub(crate) fn monthly_view(conn: &Connection, month: &str) -> Result<MonthlyRevi
             submitted_at: None,
             snapshot: month_snapshot(conn, month)?,
             goals,
-            notes: notes_for_month(conn, month)?,
         }),
     }
 }

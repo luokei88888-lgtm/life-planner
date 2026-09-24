@@ -161,6 +161,74 @@ fn week_goal_can_hang_on_year() {
 }
 
 #[test]
+fn child_goal_why_can_be_empty() {
+    let conn = conn();
+    assert_eq!(
+        insert_goal(&conn, "没有理由的年目标", "", "a1", "year", None, 2026)
+            .err()
+            .map(|e| e.code),
+        Some(crate::error::VALIDATION_FAILED)
+    );
+    assert_eq!(
+        insert_goal(&conn, "没有理由的人生", "   ", "a6", "life", None, 2026)
+            .err()
+            .map(|e| e.code),
+        Some(crate::error::VALIDATION_FAILED)
+    );
+    let (year_id, _) =
+        insert_goal(&conn, "把体脂降到20%以下", "健康是后面所有目标的底座", "a1", "year", None, 2026)
+            .unwrap();
+    let (q_id, _) =
+        insert_goal(&conn, "一个季度瘦四斤", "", "a1", "quarter", Some(&year_id), 2026).unwrap();
+    let why: String = conn
+        .query_row("SELECT why FROM goals WHERE id = ?1", [&q_id], |row| row.get(0))
+        .unwrap();
+    assert_eq!(why, "");
+    assert!(insert_goal(&conn, "一周瘦二两", "  ", "a1", "week", Some(&year_id), 2026).is_ok());
+    assert_eq!(
+        insert_goal(&conn, "独立月目标不能空理由", "", "a1", "month", None, 2026)
+            .err()
+            .map(|e| e.code),
+        Some(crate::error::VALIDATION_FAILED)
+    );
+}
+
+#[test]
+fn month_goal_can_exist_without_year() {
+    let conn = conn();
+    let (month_id, _) = insert_goal(
+        &conn,
+        "这个月先瘦三斤",
+        "短期计划不必先立年度",
+        "a1",
+        "month",
+        None,
+        2026,
+    )
+    .unwrap();
+    assert!(insert_goal(
+        &conn,
+        "本周力量三次",
+        "",
+        "a1",
+        "week",
+        Some(&month_id),
+        2026,
+    )
+    .is_ok());
+    assert!(insert_goal(
+        &conn,
+        "本周先出门散步",
+        "独立周目标也可以先做起来",
+        "a1",
+        "week",
+        None,
+        2026,
+    )
+    .is_ok());
+}
+
+#[test]
 fn habit_must_match_goal_area() {
     let conn = conn();
     let (goal_id, _) = insert_goal(&conn, "年度阅读", "成长维度需要持续输入", "a6", "year", None, 2026).unwrap();
@@ -445,22 +513,27 @@ fn settings_themes_and_json_backup_roundtrip() {
 }
 
 #[test]
-fn archive_and_restore_area() {
+fn wheel_areas_cannot_be_added_or_removed() {
     let conn = conn();
-    conn.execute(
-        "INSERT INTO areas (id, name, color, sort_order, is_archived) VALUES ('ax', '临时维', '#4b5563', 99, 1)",
-        [],
-    )
-    .unwrap();
-    let archived: i64 = conn
-        .query_row("SELECT COUNT(1) FROM areas WHERE is_archived = 1", [], |row| row.get(0))
+    conn.execute("UPDATE areas SET name = '体魄', is_archived = 1 WHERE id = 'a1'", []).unwrap();
+    conn.execute("DELETE FROM areas WHERE id = 'a2'", []).unwrap();
+    crate::db::seed::run(&conn).unwrap();
+    let a1_name: String = conn
+        .query_row("SELECT name FROM areas WHERE id = 'a1'", [], |row| row.get(0))
         .unwrap();
-    assert!(archived >= 1);
-    conn.execute("UPDATE areas SET is_archived = 0 WHERE id = 'ax'", []).unwrap();
-    let active: i64 = conn
-        .query_row("SELECT COUNT(1) FROM areas WHERE is_archived = 0", [], |row| row.get(0))
+    assert_eq!(a1_name, "体魄");
+
+    let a1_archived: i64 = conn
+        .query_row("SELECT is_archived FROM areas WHERE id = 'a1'", [], |row| row.get(0))
         .unwrap();
-    assert!(active >= 9);
+    assert_eq!(a1_archived, 0);
+    let a2: i64 = conn
+        .query_row("SELECT COUNT(1) FROM areas WHERE id = 'a2'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(a2, 1);
+
+    let create = crate::commands::areas::reject_area_mutation();
+    assert_eq!(create.code, crate::error::AREA_FIXED);
 }
 
 #[test]
@@ -578,10 +651,6 @@ fn notes_timeline_reviews_and_backup_v3() {
         Some(&goal_id),
     )
     .unwrap();
-    let week = format_date(week_start(today(), 1));
-    let weekly = weekly_view(&conn, &week).unwrap();
-    assert_eq!(weekly.notes.len(), 1);
-    assert_eq!(weekly.notes[0].kind, "insight");
 
     let json = backup::export_json(&conn).unwrap();
     assert!(json.contains("\"schema_version\": 3"));
@@ -686,12 +755,6 @@ fn notes_reject_invalid_and_paginate() {
     )
     .unwrap();
     assert_eq!(found.0.len(), 1);
-
-    let month = &day[..7];
-    let monthly = monthly_view(&conn, month).unwrap();
-    assert!(monthly.notes.iter().any(|n| n.id == inherited.id));
-    let yearly = yearly_view(&conn, &day[..4]).unwrap();
-    assert!(yearly.notes.iter().any(|n| n.id == inherited.id));
 
     let json = backup::export_json(&conn).unwrap();
     let mut doc: serde_json::Value = serde_json::from_str(&json).unwrap();

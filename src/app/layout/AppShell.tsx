@@ -63,6 +63,7 @@ export function AppShell() {
             node.style.setProperty("--py", String((event.clientY - box.top) / Math.max(1, box.height)));
           }}
         >
+          <div className="main-haze" aria-hidden="true" />
           {error ? <div className="banner warn">{error}</div> : null}
           {reminder ? (
             <div className="banner warn">

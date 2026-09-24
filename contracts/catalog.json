@@ -49,6 +49,7 @@
     "NOT_FOUND",
     "AREA_NAME_TAKEN",
     "AREA_IN_USE",
+    "AREA_FIXED",
     "GOAL_IN_USE",
     "GOAL_PARENT_INVALID",
     "STATUS_INVALID",

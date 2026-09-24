@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import { LEVEL_LABEL, STATUS_LABEL, childLevelsOf, type GoalLevel, type GoalStatus } from "../../shared/constants";
@@ -6,14 +7,14 @@ import type { Area, Goal, GoalTimelineItem, Task } from "../../shared/types";
 import { fmtNoteDay, isoDate, weekStartOf } from "../../shared/time";
 import { useApp } from "../../app/AppContext";
 import { TaskRow } from "../week/TaskRow";
-import { NoteCard } from "../notes/NoteCard";
-import { emptyNoteForm, NoteFormModal, noteToForm, type NoteFormState } from "../notes/NoteFormModal";
-import { Modal } from "../../ui/Modal";
+import { LevelTag, levelToneStyle } from "../../ui/levelTone";
+import { ancestorWhy } from "./goalWhy";
 
 export function GoalDrawer({
   goal,
   parent,
   children,
+  byId,
   areas,
   progress,
   busy,
@@ -30,6 +31,7 @@ export function GoalDrawer({
   goal: Goal;
   parent: Goal | null;
   children: Goal[];
+  byId: Map<string, Goal>;
   areas: Area[];
   progress: number;
   busy: boolean;
@@ -47,9 +49,6 @@ export function GoalDrawer({
   const [tasks, setTasks] = useState<Task[]>([]);
   const [weekLocked, setWeekLocked] = useState(false);
   const [timeline, setTimeline] = useState<GoalTimelineItem[]>([]);
-  const [noteForm, setNoteForm] = useState<NoteFormState | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<GoalTimelineItem["note"]>(null);
-  const [noteBusy, setNoteBusy] = useState(false);
   const maskDown = useRef(false);
   const terminal = goal.status === "done" || goal.status === "dropped";
   const nextLevels = childLevelsOf(goal.level);
@@ -58,12 +57,14 @@ export function GoalDrawer({
   const thisWeek = weekStartOf(isoDate(), settings.week_starts_on);
   const thisWeekTasks = tasks.filter((t) => t.week_start === thisWeek);
   const earlierTasks = tasks.filter((t) => t.week_start !== thisWeek);
+  const ownWhy = goal.why.trim();
+  const inherited = ownWhy ? null : ancestorWhy(parent, byId);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const items = await api.listGoalTimeline(goal.id);
+        const items = (await api.listGoalTimeline(goal.id)).filter((item) => item.item_kind === "status");
         if (!cancelled) setTimeline(items);
       } catch (e) {
         if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载时间线");
@@ -73,6 +74,15 @@ export function GoalDrawer({
       cancelled = true;
     };
   }, [goal.id, notify]);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   useEffect(() => {
     if (goal.level === "life") {
@@ -107,57 +117,14 @@ export function GoalDrawer({
     }
   }
 
-  async function reloadTimeline() {
-    setTimeline(await api.listGoalTimeline(goal.id));
-  }
-
-  async function saveNote(next: NoteFormState) {
-    setNoteBusy(true);
-    try {
-      const payload = {
-        date: next.date,
-        kind: next.kind,
-        body: next.body,
-        areaId: next.areaId || goal.area_id,
-        goalId: goal.id,
-      };
-      if (next.id) {
-        await api.updateNote({ id: next.id, ...payload });
-      } else {
-        await api.createNote(payload);
-      }
-      setNoteForm(null);
-      await reloadTimeline();
-      notify(next.id ? "已保存" : "已记下");
-    } catch (e) {
-      notify(e instanceof ApiError ? e.message : "保存失败");
-    } finally {
-      setNoteBusy(false);
-    }
-  }
-
-  async function removeNote(id: string) {
-    setNoteBusy(true);
-    try {
-      await api.deleteNote(id);
-      setPendingDelete(null);
-      await reloadTimeline();
-      notify("已删除");
-    } catch (e) {
-      notify(e instanceof ApiError ? e.message : "删除失败");
-    } finally {
-      setNoteBusy(false);
-    }
-  }
-
-  return (
+  return createPortal(
     <>
       <div
         className="drawer-mask"
         onPointerDown={(event) => {
           maskDown.current = event.target === event.currentTarget;
         }}
-        onClick={(event) => {
+        onPointerUp={(event) => {
           if (event.target === event.currentTarget && maskDown.current) onClose();
           maskDown.current = false;
         }}
@@ -166,7 +133,7 @@ export function GoalDrawer({
         <div className="drawer-head">
           <div>
             <div className="row mb-8">
-              <span className="tag level">{LEVEL_LABEL[goal.level]}</span>
+              <LevelTag level={goal.level} />
               <span className={`tag ${goal.status}`}>{STATUS_LABEL[goal.status]}</span>
               {area ? (
                 <span className="tag" style={{ borderColor: area.color, color: area.color }}>
@@ -182,7 +149,18 @@ export function GoalDrawer({
         </div>
         <div className="kv">
           <span className="k">为什么重要</span>
-          <span>{goal.why}</span>
+          <span>
+            {ownWhy ? (
+              ownWhy
+            ) : inherited ? (
+              <>
+                <span className="muted">沿用{LEVEL_LABEL[inherited.from.level]} · </span>
+                {inherited.text}
+              </>
+            ) : (
+              "未填写"
+            )}
+          </span>
           <span className="k">周期</span>
           <span>
             {goal.period_start} 至 {goal.period_end}
@@ -194,7 +172,7 @@ export function GoalDrawer({
                 {parent.title}
               </button>
             ) : (
-              "无（年度目标）"
+              "无"
             )}
           </span>
           {goal.status_reason ? (
@@ -222,6 +200,8 @@ export function GoalDrawer({
           </div>
           <input
             type="range"
+            className="toned"
+            style={levelToneStyle(goal.level)}
             min={0}
             max={100}
             value={progress}
@@ -294,7 +274,7 @@ export function GoalDrawer({
                   <button key={k.id} className="task-row" onClick={() => onSelect(k.id)}>
                     <span className="dot" style={{ background: color }} />
                     <span className="task-title">{k.title}</span>
-                    <span className={`tag level`}>{LEVEL_LABEL[k.level]}</span>
+                    <LevelTag level={k.level} />
                     <span className={`tag ${k.status}`}>{STATUS_LABEL[k.status]}</span>
                     <span className="muted small">
                       {k.progress}%
@@ -306,7 +286,11 @@ export function GoalDrawer({
                 );
               })
             ) : (
-              <div className="empty">还没有子目标。</div>
+              <div className="empty">
+                {goal.level === "week"
+                  ? "周目标下面不再拆目标，去任务里写这周要做的事。"
+                  : `还没有子目标。点上面的「+」挂更短周期，也可以不拆。`}
+              </div>
             )}
           </div>
         ) : null}
@@ -317,7 +301,7 @@ export function GoalDrawer({
                 任务（{tasks.filter((t) => t.status === "done").length}/{tasks.length}）
               </span>
               <Link className="btn sm" to="/week">
-                去本周计划
+                去任务
               </Link>
             </div>
             {tasks.length ? (
@@ -369,83 +353,28 @@ export function GoalDrawer({
           </div>
         ) : null}
         <div className="mt-24">
-            <div className="row between mb-8">
-              <span className="strong">时间线</span>
-              <button
-                className="btn sm"
-                type="button"
-                onClick={() =>
-                  setNoteForm(
-                    emptyNoteForm({
-                      areaId: goal.area_id,
-                      goalId: goal.id,
-                    }),
-                  )
-                }
-              >
-                + 随记
-              </button>
+          <div className="row between mb-8">
+            <span className="strong">时间线</span>
+          </div>
+          {timeline.length ? (
+            <div className="timeline compact">
+              {timeline.map((item) => (
+                <section className="tl-day status" key={`s-${item.sort_at}`}>
+                  <div className="tl-date">{fmtNoteDay(item.date)}</div>
+                  <div className="small muted">
+                    {labelStatus(item.from_status ?? "")} → {labelStatus(item.to_status ?? "")}
+                    {item.reason ? `：${item.reason}` : ""}
+                  </div>
+                </section>
+              ))}
             </div>
-            {timeline.length ? (
-              <div className="timeline compact">
-                {timeline.map((item) =>
-                  item.item_kind === "note" && item.note ? (
-                    <section className="tl-day" key={`n-${item.note.id}`}>
-                      <div className="tl-date">{fmtNoteDay(item.date)}</div>
-                      <NoteCard
-                        note={item.note}
-                        compact
-                        onEdit={() => setNoteForm(noteToForm(item.note!))}
-                        onDelete={() => setPendingDelete(item.note)}
-                      />
-                    </section>
-                  ) : (
-                    <section className="tl-day status" key={`s-${item.sort_at}`}>
-                      <div className="tl-date">{fmtNoteDay(item.date)}</div>
-                      <div className="small muted">
-                        {labelStatus(item.from_status ?? "")} → {labelStatus(item.to_status ?? "")}
-                        {item.reason ? `：${item.reason}` : ""}
-                      </div>
-                    </section>
-                  ),
-                )}
-              </div>
-            ) : (
-              <div className="empty">还没有随记或状态变更。可以先写一条挂在这个目标上。</div>
-            )}
-          </div>
+          ) : (
+            <div className="empty">还没有状态变更。</div>
+          )}
+        </div>
       </aside>
-      {noteForm ? (
-        <NoteFormModal
-          form={noteForm}
-          areas={areas}
-          goals={[goal]}
-          busy={noteBusy}
-          lockGoal
-          onClose={() => setNoteForm(null)}
-          onSave={(next) => void saveNote(next)}
-        />
-      ) : null}
-      {pendingDelete ? (
-        <Modal onClose={() => setPendingDelete(null)}>
-          <h3>删除这条随记？</h3>
-          <p className="muted">{pendingDelete.body.slice(0, 80)}</p>
-          <div className="modal-foot">
-            <button className="btn" type="button" onClick={() => setPendingDelete(null)}>
-              取消
-            </button>
-            <button
-              className="btn danger"
-              type="button"
-              disabled={noteBusy}
-              onClick={() => void removeNote(pendingDelete.id)}
-            >
-              删除
-            </button>
-          </div>
-        </Modal>
-      ) : null}
-    </>
+    </>,
+    document.body,
   );
 }
 

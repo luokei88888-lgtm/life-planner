@@ -1,7 +1,7 @@
 mod period;
 
 pub use period::{
-    add_days, format_date, last_day_of_month, allowed_parent_levels, is_allowed_parent, parent_level, parent_required, parse_date, period_for,
+    add_days, format_date, last_day_of_month, allowed_parent_levels, is_allowed_parent, parent_level, parse_date, period_for,
     today, week_start,
 };
 
@@ -391,9 +391,13 @@ pub fn normalize_review_next_titles(titles: &[String]) -> Result<Vec<String>, St
     Ok(out)
 }
 
-pub fn normalize_goal_why(why: &str) -> Result<String, String> {
+pub fn why_required(has_parent: bool) -> bool {
+    !has_parent
+}
+
+pub fn normalize_goal_why(why: &str, has_parent: bool) -> Result<String, String> {
     let trimmed = why.trim();
-    if trimmed.is_empty() {
+    if why_required(has_parent) && trimmed.is_empty() {
         return Err("「为什么重要」是必填的".into());
     }
     if trimmed.chars().count() > catalog().goal_why_max {

@@ -87,7 +87,6 @@ export function habitHeatLegend(kind: HabitKind) {
 
 export const REVIEW_ANSWER_MAX = catalog.reviewAnswerMax;
 export const REVIEW_NEXT_TASK_MAX = catalog.reviewNextTaskMax;
-export const REVIEW_NOTES_ASIDE_MAX = 8;
 export const WEEK_ADVANCING_MAX = ACTIVE_LIMITS.week;
 export const NOTE_BODY_MAX = catalog.noteBodyMax;
 export const NOTE_PAGE_SIZE = catalog.notePageSize;
@@ -105,6 +104,19 @@ export const LEVEL_LABEL: Record<GoalLevel, string> = {
   week: "周",
 };
 
+/** Time-level tones for tags and progress (scheme 2). Area bars stay on area color. */
+export const LEVEL_COLOR: Record<GoalLevel, string> = {
+  life: "#9b6dd4",
+  year: "#e8c547",
+  quarter: "#3d8bff",
+  month: "#ff5a3c",
+  week: "#8e99ad",
+};
+
+export function goalWhyRequired(_level: GoalLevel, hasParent: boolean) {
+  return !hasParent;
+}
+
 export const GOAL_STATUSES = ["active", "done", "paused", "dropped"] as const;
 export type GoalStatus = (typeof GOAL_STATUSES)[number];
 
@@ -115,6 +127,13 @@ export const NOTE_KIND_LABEL: Record<NoteKind, string> = {
   insight: "感悟",
   diary: "日记",
   vent: "吐槽",
+};
+
+/** Card tag tones (scheme B): gold / blue / gray with a light wash. */
+export const NOTE_KIND_COLOR: Record<NoteKind, string> = {
+  insight: "#d2b36e",
+  diary: "#3d8bff",
+  vent: "#8d97a8",
 };
 
 export const STATUS_LABEL: Record<GoalStatus, string> = {
@@ -128,7 +147,7 @@ export const NAV = [
   { to: "/", label: "首页" },
   { to: "/areas", label: "维度" },
   { to: "/goals", label: "目标" },
-  { to: "/week", label: "本周计划" },
+  { to: "/week", label: "任务" },
   { to: "/habits", label: "习惯" },
   { to: "/notes", label: "随记" },
   { to: "/reviews", label: "复盘" },
@@ -154,8 +173,8 @@ export function childLevelsOf(parent: GoalLevel): GoalLevel[] {
   }
 }
 
-export function parentRequired(level: GoalLevel): boolean {
-  return level === "quarter" || level === "month" || level === "week";
+export function parentRequired(_level: GoalLevel): boolean {
+  return false;
 }
 
 export function habitFreqLabel(type: "daily" | "weekly", target: number) {

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { LEVEL_LABEL, NOTE_BODY_MAX, NOTE_KIND_LABEL, NOTE_KINDS, type NoteKind } from "../../shared/constants";
-import type { Area, Goal, Note } from "../../shared/types";
+import { useEffect, useRef, useState } from "react";
+import { NOTE_BODY_MAX, NOTE_KIND_LABEL, NOTE_KINDS, type NoteKind } from "../../shared/constants";
+import type { Note } from "../../shared/types";
 import { isoDate } from "../../shared/time";
 import { Modal } from "../../ui/Modal";
-import { Select } from "../../ui/Select";
+import { insertAtCaret } from "./insertAtCaret";
+import { NoteEmojiPicker } from "./NoteEmojiPicker";
 
 export type NoteFormState = {
   id?: string;
@@ -38,37 +39,40 @@ export function noteToForm(note: Note): NoteFormState {
 
 export function NoteFormModal({
   form,
-  areas,
-  goals,
   busy,
-  lockGoal,
   onClose,
   onSave,
 }: {
   form: NoteFormState;
-  areas: Area[];
-  goals: Goal[];
   busy: boolean;
-  lockGoal?: boolean;
   onClose: () => void;
   onSave: (next: NoteFormState) => void;
 }) {
   const [draft, setDraft] = useState(form);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const caret = useRef({ start: 0, end: 0 });
   useEffect(() => setDraft(form), [form]);
   const today = isoDate();
-  const areaGoals = useMemo(() => {
-    const filtered = goals.filter(
-      (g) =>
-        (!draft.areaId || g.area_id === draft.areaId) &&
-        (g.status !== "dropped" || g.id === draft.goalId),
-    );
-    if (draft.goalId && !filtered.some((g) => g.id === draft.goalId)) {
-      const current = goals.find((g) => g.id === draft.goalId);
-      if (current) filtered.push(current);
-    }
-    return filtered;
-  }, [goals, draft.areaId, draft.goalId]);
   const canSave = draft.body.trim().length > 0 && draft.date.length === 10;
+
+  function rememberCaret() {
+    const node = bodyRef.current;
+    if (!node) return;
+    caret.current = { start: node.selectionStart, end: node.selectionEnd };
+  }
+
+  function insertEmoji(emoji: string) {
+    const next = insertAtCaret(draft.body, emoji, caret.current.start, caret.current.end, NOTE_BODY_MAX);
+    caret.current = { start: next.caret, end: next.caret };
+    setDraft({ ...draft, body: next.body });
+    requestAnimationFrame(() => {
+      const node = bodyRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(next.caret, next.caret);
+    });
+  }
 
   return (
     <Modal onClose={onClose}>
@@ -102,48 +106,24 @@ export function NoteFormModal({
         <label htmlFor="nf-body">正文</label>
         <textarea
           id="nf-body"
+          ref={bodyRef}
           className="note-input"
           maxLength={NOTE_BODY_MAX}
           value={draft.body}
           placeholder="写给自己看的话，不必工整。"
-          onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+          onSelect={rememberCaret}
+          onKeyUp={rememberCaret}
+          onClick={rememberCaret}
+          onBlur={rememberCaret}
+          onChange={(e) => {
+            caret.current = { start: e.target.selectionStart, end: e.target.selectionEnd };
+            setDraft({ ...draft, body: e.target.value });
+          }}
         />
+        <NoteEmojiPicker open={emojiOpen} onOpenChange={setEmojiOpen} onPick={insertEmoji} />
         <div className="hint">
           {draft.body.trim().length}/{NOTE_BODY_MAX}
         </div>
-      </div>
-      <div className="field">
-        <label htmlFor="nf-area">维度（可选）</label>
-        <Select
-          id="nf-area"
-          value={draft.areaId}
-          disabled={lockGoal}
-          options={[
-            { value: "", label: "不挂维度" },
-            ...areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color })),
-          ]}
-          onChange={(areaId) => setDraft({ ...draft, areaId, goalId: "" })}
-        />
-      </div>
-      <div className="field">
-        <label htmlFor="nf-goal">关联目标（可选）</label>
-        <Select
-          id="nf-goal"
-          value={draft.goalId}
-          disabled={lockGoal}
-          options={[
-            { value: "", label: "不挂目标" },
-            ...areaGoals.map((g) => ({ value: g.id, label: `${LEVEL_LABEL[g.level]} · ${g.title}` })),
-          ]}
-          onChange={(goalId) => {
-            const goal = goals.find((g) => g.id === goalId);
-            setDraft({
-              ...draft,
-              goalId,
-              areaId: goal ? goal.area_id : draft.areaId,
-            });
-          }}
-        />
       </div>
       <div className="modal-foot">
         <button className="btn" type="button" onClick={onClose}>

@@ -1,25 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../lib/api";
 import { NOTE_KIND_LABEL, NOTE_KINDS, type NoteKind } from "../../shared/constants";
-import { fmtMonth, fmtNoteDay } from "../../shared/time";
-import type { Goal, Note } from "../../shared/types";
+import { fmtNoteDay } from "../../shared/time";
+import type { Note } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Select } from "../../ui/Select";
+import { MonthPicker } from "../../ui/MonthPicker";
 import { Modal } from "../../ui/Modal";
 import { NoteCard } from "./NoteCard";
 import { emptyNoteForm, NoteFormModal, noteToForm, type NoteFormState } from "./NoteFormModal";
 
 export function NotesPage() {
-  const { areas, notify } = useApp();
+  const { notify } = useApp();
   const [notes, setNotes] = useState<Note[]>([]);
-  const [months, setMonths] = useState<string[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [month, setMonth] = useState("");
   const [kind, setKind] = useState("");
-  const [areaId, setAreaId] = useState("");
   const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
-  const [goals, setGoals] = useState<Goal[]>([]);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<NoteFormState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Note | null>(null);
@@ -36,33 +34,16 @@ export function NotesPage() {
       const page = await api.listNotes({
         month: month || null,
         kind: kind || null,
-        areaId: areaId || null,
         q: q || null,
         beforeDate: append && cursor ? cursor.date : null,
         beforeCreatedAt: append && cursor ? cursor.created_at : null,
         beforeId: append && cursor ? cursor.id : null,
       });
-      setMonths(page.months);
       setHasMore(page.has_more);
       setNotes((prev) => (append ? [...prev, ...page.notes] : page.notes));
     },
-    [month, kind, areaId, q],
+    [month, kind, q],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const list = await api.listGoals();
-        if (!cancelled) setGoals(list);
-      } catch (e) {
-        if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载目标");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [notify]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,12 +52,10 @@ export function NotesPage() {
         const page = await api.listNotes({
           month: month || null,
           kind: kind || null,
-          areaId: areaId || null,
           q: q || null,
         });
         if (cancelled) return;
         setNotes(page.notes);
-        setMonths(page.months);
         setHasMore(page.has_more);
       } catch (e) {
         if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载随记");
@@ -85,7 +64,7 @@ export function NotesPage() {
     return () => {
       cancelled = true;
     };
-  }, [month, kind, areaId, q, notify]);
+  }, [month, kind, q, notify]);
 
   useEffect(() => {
     const node = sentinel.current;
@@ -172,15 +151,7 @@ export function NotesPage() {
             ]}
             onChange={setKind}
           />
-          <Select
-            style={{ width: 140 }}
-            value={areaId}
-            options={[
-              { value: "", label: "全部维度" },
-              ...areas.map((a) => ({ value: a.id, label: a.name, swatch: a.color })),
-            ]}
-            onChange={setAreaId}
-          />
+          <MonthPicker style={{ width: 168 }} value={month} onChange={setMonth} />
           <input
             type="text"
             placeholder="搜索正文"
@@ -188,25 +159,6 @@ export function NotesPage() {
             onChange={(e) => setQInput(e.target.value)}
             style={{ flex: 1, minWidth: 160 }}
           />
-        </div>
-        <div className="month-jumper mt-16">
-          <button
-            type="button"
-            className={`chip ${month === "" ? "on" : ""}`}
-            onClick={() => setMonth("")}
-          >
-            全部
-          </button>
-          {months.map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={`chip ${month === m ? "on" : ""}`}
-              onClick={() => setMonth(m)}
-            >
-              {fmtMonth(m)}
-            </button>
-          ))}
         </div>
       </section>
 
@@ -231,7 +183,7 @@ export function NotesPage() {
       ) : (
         <section className="card">
           <div className="empty">
-            这里是你的树洞。写给自己看的话，不会出现在首页，也不会被当成打卡。
+            {month ? "这一月没有随记。" : "这里是你的树洞。写给自己看的话，不会出现在首页，也不会被当成打卡。"}
           </div>
         </section>
       )}
@@ -240,8 +192,6 @@ export function NotesPage() {
       {form ? (
         <NoteFormModal
           form={form}
-          areas={areas}
-          goals={goals}
           busy={busy}
           onClose={() => setForm(null)}
           onSave={(next) => void save(next)}

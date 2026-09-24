@@ -29,14 +29,13 @@ const DEFAULT_SETTINGS: &[(&str, &str)] = &[
 ];
 
 pub fn run(conn: &Connection) -> Result<(), AppError> {
-    let area_count: i64 = conn.query_row("SELECT COUNT(1) FROM areas", [], |row| row.get(0))?;
-    if area_count == 0 {
-        let mut stmt = conn.prepare(
-            "INSERT INTO areas (id, name, color, sort_order) VALUES (?1, ?2, ?3, ?4)",
-        )?;
-        for (id, name, color, sort) in DEFAULT_AREAS {
-            stmt.execute(rusqlite::params![id, name, color, sort])?;
-        }
+    let mut stmt = conn.prepare(
+        "INSERT INTO areas (id, name, color, sort_order, is_archived)
+         VALUES (?1, ?2, ?3, ?4, 0)
+         ON CONFLICT(id) DO UPDATE SET is_archived = 0",
+    )?;
+    for (id, name, color, sort) in DEFAULT_AREAS {
+        stmt.execute(rusqlite::params![id, name, color, sort])?;
     }
 
     let mut stmt = conn.prepare(

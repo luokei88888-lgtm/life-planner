@@ -75,7 +75,7 @@ pub(crate) fn complete_onboarding_record(
     let mut year_area_id: Option<String> = None;
 
     if let (Some(title), Some(why_raw)) = (year_title, why_raw) {
-        let why = domain::normalize_goal_why(&why_raw)
+        let why = domain::normalize_goal_why(&why_raw, false)
             .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
         let area_id = payload
             .area_id

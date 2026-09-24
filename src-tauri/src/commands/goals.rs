@@ -3,7 +3,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::db::{self, Db};
-use crate::domain::{self, catalog, format_date, is_allowed_parent, parent_level, parent_required, parse_date, period_for, today, week_start};
+use crate::domain::{self, catalog, format_date, is_allowed_parent, parent_level, parse_date, period_for, today, week_start};
 use crate::error::{
     AppError, GOAL_IN_USE, GOAL_PARENT_INVALID, NOT_FOUND, STATUS_INVALID, VALIDATION_FAILED,
 };
@@ -278,9 +278,6 @@ pub(crate) fn insert_goal(
                 format!("{}目标不能挂上级", domain::level_label(level)),
             ));
         }
-        None if parent_required(level) => {
-            return Err(AppError::new(GOAL_PARENT_INVALID, "请选择上级目标"));
-        }
         None => None,
         Some(id) => {
             let parent = get_by_id(conn, id)?;
@@ -306,6 +303,8 @@ pub(crate) fn insert_goal(
             Some(parent)
         }
     };
+    let why = domain::normalize_goal_why(why, parent.is_some())
+        .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
 
     let today = today();
     let week_start_on = week_starts_on(conn)?;
@@ -349,8 +348,6 @@ pub fn create_goal(
 ) -> Result<GoalMutation, AppError> {
     let title = domain::normalize_goal_title(&title)
         .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
-    let why = domain::normalize_goal_why(&why)
-        .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
     let parent_id = parent_id.filter(|v| !v.is_empty());
 
     db::with_conn(&db, |conn| {
@@ -377,11 +374,11 @@ pub fn update_goal(
 ) -> Result<GoalMutation, AppError> {
     let title = domain::normalize_goal_title(&title)
         .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
-    let why = domain::normalize_goal_why(&why)
-        .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
 
     db::with_conn(&db, |conn| {
-        get_by_id(conn, &id)?;
+        let current = get_by_id(conn, &id)?;
+        let why = domain::normalize_goal_why(&why, current.parent_id.is_some())
+            .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
         area_exists(conn, &area_id)?;
         conn.execute(
             "UPDATE goals SET title = ?1, why = ?2, area_id = ?3, updated_at = datetime('now') WHERE id = ?4",

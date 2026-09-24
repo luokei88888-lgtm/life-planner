@@ -152,19 +152,6 @@ fn list_months(conn: &Connection) -> Result<Vec<String>, AppError> {
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
-pub(crate) fn list_in_range(
-    conn: &Connection,
-    from: &str,
-    to: &str,
-) -> Result<Vec<Note>, AppError> {
-    let mut stmt = conn.prepare(&format!(
-        "{NOTE_SELECT} WHERE n.date >= ?1 AND n.date <= ?2
-         ORDER BY n.date DESC, n.created_at DESC, n.id DESC"
-    ))?;
-    let rows = stmt.query_map(params![from, to], map_note)?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-}
-
 pub(crate) fn query_page(
     conn: &Connection,
     month: Option<&str>,
@@ -305,13 +292,6 @@ pub fn list_goal_timeline(
         if exists.is_none() {
             return Err(AppError::new(NOT_FOUND, "目标不存在"));
         }
-        let mut note_stmt = conn.prepare(&format!(
-            "{NOTE_SELECT} WHERE n.goal_id = ?1
-             ORDER BY n.date DESC, n.created_at DESC, n.id DESC"
-        ))?;
-        let notes = note_stmt
-            .query_map([&goal_id], map_note)?
-            .collect::<Result<Vec<_>, _>>()?;
         let mut stmt = conn.prepare(
             "SELECT from_status, to_status, reason, changed_at
              FROM goal_status_history WHERE goal_id = ?1
@@ -326,17 +306,6 @@ pub fn list_goal_timeline(
             ))
         })?;
         let mut items: Vec<TimelineItem> = Vec::new();
-        for note in notes {
-            items.push(TimelineItem {
-                sort_at: note.created_at.clone(),
-                date: note.date.clone(),
-                item_kind: "note".into(),
-                note: Some(note),
-                from_status: None,
-                to_status: None,
-                reason: None,
-            });
-        }
         for row in history {
             let (from_status, to_status, reason, changed_at) = row?;
             let date = changed_at.get(..10).unwrap_or(changed_at.as_str()).to_string();
@@ -350,7 +319,6 @@ pub fn list_goal_timeline(
                 reason,
             });
         }
-        items.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| b.sort_at.cmp(&a.sort_at)));
         items.truncate(300);
         Ok(items)
     })

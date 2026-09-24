@@ -4,7 +4,6 @@ import { api, ApiError } from "../../lib/api";
 import {
   FOCUS_LIMIT,
   HABIT_KIND_LABEL,
-  LEVEL_LABEL,
   areaScorePercent,
   habitCheckLabel,
   habitKindOf,
@@ -16,6 +15,7 @@ import { useApp } from "../../app/AppContext";
 import { RadarChart } from "../areas/RadarChart";
 import { TaskRow } from "../week/TaskRow";
 import { advancingGoals } from "../week/taskGoals";
+import { GoalProgress, LevelTag } from "../../ui/levelTone";
 
 export function HomePage() {
   const { areas, settings, notify } = useApp();
@@ -25,7 +25,6 @@ export function HomePage() {
   const [habits, setHabits] = useState<HabitRow[]>([]);
   const [reviews, setReviews] = useState<ReviewList | null>(null);
   const [wheelHover, setWheelHover] = useState<string | null>(null);
-  const scored = areas.filter((a) => a.score != null).length;
   const today = isoDate();
   const weekStart = weekStartOf(today, settings.week_starts_on);
   const focus = tasks.filter((t) => t.is_focus && t.planned_date === today);
@@ -84,8 +83,8 @@ export function HomePage() {
           </p>
         </div>
         <div className="head-actions">
-          <Link className="btn primary" to="/week">
-            进入本周计划
+          <Link className="btn" to="/week">
+            去任务
           </Link>
         </div>
       </div>
@@ -122,7 +121,7 @@ export function HomePage() {
       {advancing.length ? (
         <section className="card mb-16">
           <div className="card-title">
-            本周在推进 <Link className="muted small" to="/week">本周计划</Link>
+            本周在推进 <Link className="muted small" to="/week">任务</Link>
           </div>
           {advancing.map((g) => {
             const color = areas.find((a) => a.id === g.area_id)?.color ?? "var(--accent)";
@@ -132,20 +131,18 @@ export function HomePage() {
                 <div className="body">
                   <div className="title">
                     {g.level !== "week" ? (
-                      <span className="tag level">{LEVEL_LABEL[g.level]}</span>
+                      <LevelTag level={g.level} />
                     ) : null}{" "}
                     {g.title}
                   </div>
                   <div className="row mt-8">
                     <div style={{ flex: 1 }}>
-                      <div className="progress thin">
-                        <div style={{ width: `${g.progress}%` }} />
-                      </div>
+                      <GoalProgress level={g.level} value={g.progress} />
                     </div>
-                    <span className="muted small">{g.progress}%</span>
+                    <span className="muted small">判断 {g.progress}%</span>
                     {g.week_task_total > 0 ? (
                       <span className="muted small">
-                        本周 {g.week_task_done}/{g.week_task_total}
+                        本周执行 {g.week_task_done}/{g.week_task_total}
                       </span>
                     ) : null}
                   </div>
@@ -176,13 +173,14 @@ export function HomePage() {
                   area={area}
                   locked={locked}
                   compact
+                  showUnlinked={false}
                   onToggle={() => void mutate(() => api.toggleTask(t.id))}
                   onFocus={() => void mutate(() => api.toggleFocus(t.id))}
                 />
               );
             })
           ) : (
-            <p className="empty">今天还没有焦点任务。到「本周计划」里给任务点亮星标。</p>
+            <p className="empty">今天还没有焦点任务。到「任务」里点亮星标。</p>
           )}
           {focus.length < FOCUS_LIMIT ? (
             <Link className="add-line" to="/week">
@@ -202,7 +200,7 @@ export function HomePage() {
               const area = areas.find((a) => a.id === h.area_id);
               const kind = habitKindOf(h.kind);
               return (
-                <div className={`task-item ${h.done_today ? "done" : ""}`} key={h.id}>
+                <div className={`task-item kind-${kind} ${h.done_today ? "done" : ""}`} key={h.id}>
                   <button
                     type="button"
                     className={`checkbox ${h.done_today ? "on" : ""}`}
@@ -276,14 +274,6 @@ export function HomePage() {
             ))}
           </div>
         </div>
-        <p className="muted small" style={{ marginTop: 12 }}>
-          已预置 {areas.length} 个维度
-          {scored ? `，其中 ${scored} 个已打分` : "，尚未打分"}
-          {settings.onboarded ? "" : "。也可以从设置里重新运行新手引导。"}
-        </p>
-        <Link className="add-line" to="/areas">
-          前往维度
-        </Link>
       </section>
     </>
   );

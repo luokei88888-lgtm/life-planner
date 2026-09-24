@@ -7,8 +7,6 @@ import type { WeeklyReviewView } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
 import { WeekSummary } from "./WeekSummary";
-import { PeriodNotes } from "../notes/PeriodNotes";
-import { useReviewNoteQuote } from "./useReviewNoteQuote";
 
 export function WeeklyReviewPage() {
   const { weekStart } = useParams<{ weekStart: string }>();
@@ -26,16 +24,6 @@ export function WeeklyReviewPage() {
   const [doneOpen, setDoneOpen] = useState(false);
   const [nextTitles, setNextTitles] = useState<string[]>([""]);
   const [carryUnfinished, setCarryUnfinished] = useState(false);
-  const { onQuote, focusProps } = useReviewNoteQuote(
-    { wentWell, notWell, reason, nextWeek },
-    (key, value) => {
-      if (key === "wentWell") setWentWell(value);
-      else if (key === "notWell") setNotWell(value);
-      else if (key === "reason") setReason(value);
-      else if (key === "nextWeek") setNextWeek(value);
-    },
-    notify,
-  );
 
   useEffect(() => {
     if (!weekStart) return;
@@ -103,7 +91,7 @@ export function WeeklyReviewPage() {
       const wroteNew = titles.some((t) => t.trim());
       if (carry && wroteNew) notify("未完成已移到下周，并写入新任务");
       else if (carry) notify("未完成已移到下周");
-      else if (wroteNew) notify("已写入下周计划");
+      else if (wroteNew) notify("已写入下周任务");
       else notify("复盘已提交");
       setDoneOpen(false);
       navigate(goNextWeek ? `/week?ws=${addDays(weekStart, 7)}` : "/reviews");
@@ -144,7 +132,7 @@ export function WeeklyReviewPage() {
                 移到下周
               </label>
               <p className="hint">
-                不勾选则留在本周只读。之后仍可在下周计划里批量移入。
+                不勾选则留在本周只读。之后仍可在任务页把它们移入下周。
               </p>
             </div>
           ) : null}
@@ -245,12 +233,10 @@ export function WeeklyReviewPage() {
             <section className="card">
               <div className="empty">这一周你选择了跳过复盘，没有留下记录。</div>
             </section>
-            <PeriodNotes notes={view.notes} />
           </>
         ) : (
           <>
             <WeekSummary snap={view.snapshot} />
-            <PeriodNotes notes={view.notes} />
             <section className="card mt-16 stack">
               <div>
                 <div className="strong">本周做得好的</div>
@@ -306,7 +292,6 @@ export function WeeklyReviewPage() {
       {step === 1 ? (
         <>
           <WeekSummary snap={view.snapshot} />
-          <PeriodNotes notes={view.notes} />
           <div className="row mt-16" style={{ justifyContent: "flex-end" }}>
             <button className="btn primary" onClick={() => setStep(2)}>
               下一步：回答问题
@@ -315,7 +300,6 @@ export function WeeklyReviewPage() {
         </>
       ) : (
         <>
-          <div className="review-qa-layout">
           <section className="card stack qa">
             <div>
               <label htmlFor="wr-wentWell">1. 本周做得好的是什么？</label>
@@ -325,7 +309,6 @@ export function WeeklyReviewPage() {
                 placeholder="哪怕很小的事也算"
                 value={wentWell}
                 onChange={(e) => setWentWell(e.target.value)}
-                {...focusProps("wentWell")}
               />
             </div>
             <div>
@@ -335,7 +318,6 @@ export function WeeklyReviewPage() {
                 maxLength={REVIEW_ANSWER_MAX}
                 value={notWell}
                 onChange={(e) => setNotWell(e.target.value)}
-                {...focusProps("notWell")}
               />
             </div>
             <div>
@@ -346,7 +328,6 @@ export function WeeklyReviewPage() {
                 placeholder="尽量找到可控的原因，而不是归因于运气或别人"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                {...focusProps("reason")}
               />
             </div>
             <div>
@@ -354,10 +335,9 @@ export function WeeklyReviewPage() {
               <textarea
                 id="wr-nextWeek"
                 maxLength={REVIEW_ANSWER_MAX}
-                placeholder="一条就够，能落到下周计划里"
+                placeholder="一条就够，能落到下周任务里"
                 value={nextWeek}
                 onChange={(e) => setNextWeek(e.target.value)}
-                {...focusProps("nextWeek")}
               />
             </div>
             <div>
@@ -374,8 +354,6 @@ export function WeeklyReviewPage() {
               />
             </div>
           </section>
-          <PeriodNotes notes={view.notes} quoteable onQuote={onQuote} />
-          </div>
           <div className="row mt-16 between">
             <button
               className="btn"

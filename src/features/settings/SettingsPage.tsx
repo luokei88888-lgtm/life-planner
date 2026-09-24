@@ -117,7 +117,7 @@ export function SettingsPage() {
           <div className="setting-row">
             <div>
               <div>每周起始日</div>
-              <div className="desc">影响周计划和周复盘的划分</div>
+              <div className="desc">影响一周从哪天算起，以及周复盘怎么切</div>
             </div>
             <Select
               style={{ width: 120 }}

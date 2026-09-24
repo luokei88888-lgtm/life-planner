@@ -7,6 +7,7 @@ export function TaskRow({
   area,
   locked,
   compact,
+  showUnlinked = true,
   onToggle,
   onFocus,
   onMenu,
@@ -16,6 +17,7 @@ export function TaskRow({
   area?: Area;
   locked: boolean;
   compact?: boolean;
+  showUnlinked?: boolean;
   onToggle: () => void;
   onFocus: () => void;
   onMenu?: () => void;
@@ -42,7 +44,7 @@ export function TaskRow({
         {compact && goal ? <span className="task-goal">{goal.title}</span> : null}
       </span>
       <div className="task-meta">
-        {!task.goal_id ? <span className="tag unlinked">未关联</span> : null}
+        {showUnlinked && !task.goal_id ? <span className="tag unlinked">未关联</span> : null}
         {!compact && task.carried_over_count > 0 ? (
           <span className="tag">已拖 {task.carried_over_count} 周</span>
         ) : null}

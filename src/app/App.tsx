@@ -14,6 +14,7 @@ import { MonthlyReviewPage } from "../features/reviews/MonthlyReviewPage";
 import { YearlyReviewPage } from "../features/reviews/YearlyReviewPage";
 import { NotesPage } from "../features/notes/NotesPage";
 import { OnboardingPage, SKIP_ONBOARDING_KEY } from "../features/onboarding/OnboardingPage";
+import { PlainFields } from "../ui/plainFields";
 
 function FirstRunGuard() {
   const { settings } = useApp();
@@ -28,6 +29,7 @@ function FirstRunGuard() {
 export function App() {
   return (
     <AppProvider>
+      <PlainFields />
       <HashRouter>
         <Routes>
           <Route element={<FirstRunGuard />}>

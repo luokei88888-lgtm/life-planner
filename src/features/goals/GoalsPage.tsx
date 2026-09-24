@@ -16,16 +16,27 @@ import type { Goal, GoalMutation } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
 import { GoalDrawer } from "./GoalDrawer";
-import { GoalFormModal, type GoalFormState } from "./GoalFormModal";
+import { GoalFormModal, periodHint, type GoalFormState } from "./GoalFormModal";
+import { ancestorWhy } from "./goalWhy";
 import { Select } from "../../ui/Select";
+import { YearPicker } from "../../ui/YearPicker";
+import { GoalProgress, LevelTag } from "../../ui/levelTone";
 
 const TREE_EXPANDED_KEY = "life-planner.goal-tree-expanded.v2";
 
 function defaultExpandedIds(goals: Goal[], year: number) {
   const ids = new Set<string>();
+  const prefix = String(year);
   for (const g of goals) {
     if (g.level === "life") ids.add(g.id);
-    if (g.level === "year" && g.period_start.startsWith(String(year))) ids.add(g.id);
+    if (
+      !g.parent_id &&
+      g.level !== "life" &&
+      (g.period_start.startsWith(prefix) || g.period_end.startsWith(prefix))
+    ) {
+      ids.add(g.id);
+    }
+    if (g.level === "year" && g.period_start.startsWith(prefix)) ids.add(g.id);
   }
   return ids;
 }
@@ -101,6 +112,14 @@ export function GoalsPage() {
     setExpanded((prev) => {
       const next = new Set(prev);
       for (const g of goals) {
+        if (g.level === "life") next.add(g.id);
+        if (
+          !g.parent_id &&
+          g.level !== "life" &&
+          (g.period_start.startsWith(String(year)) || g.period_end.startsWith(String(year)))
+        ) {
+          next.add(g.id);
+        }
         if (g.level === "year" && g.period_start.startsWith(String(year))) next.add(g.id);
       }
       return next;
@@ -112,14 +131,6 @@ export function GoalsPage() {
     if (fromQuery) setAreaId(fromQuery);
   }, [params]);
 
-  const years = useMemo(() => {
-    const found = new Set<number>([currentYear, currentYear - 1]);
-    for (const g of goals) {
-      if (g.level === "year") found.add(Number(g.period_start.slice(0, 4)));
-    }
-    return [...found].sort((a, b) => b - a);
-  }, [goals, currentYear]);
-
   const byId = useMemo(() => new Map(goals.map((g) => [g.id, g])), [goals]);
   const selected = selectedId ? byId.get(selectedId) ?? null : null;
   const childrenOf = (id: string) => goals.filter((g) => g.parent_id === id);
@@ -129,16 +140,24 @@ export function GoalsPage() {
     return statuses.has(g.status);
   }
 
-  const roots = [
-    ...goals.filter((g) => g.level === "life" && matches(g)),
-    ...goals.filter(
-      (g) =>
-        g.level === "year" &&
-        !g.parent_id &&
-        g.period_start.startsWith(String(year)) &&
-        matches(g),
-    ),
-  ];
+  function inSelectedYear(g: Goal) {
+    const prefix = String(year);
+    return g.period_start.startsWith(prefix) || g.period_end.startsWith(prefix);
+  }
+
+  function isRootGoal(g: Goal) {
+    if (g.level === "life") return true;
+    return !g.parent_id && inSelectedYear(g);
+  }
+
+  const roots = (() => {
+    const list = goals.filter((g) => isRootGoal(g) && matches(g));
+    if (selected && isRootGoal(selected) && !list.some((g) => g.id === selected.id)) {
+      return [selected, ...list];
+    }
+    return list;
+  })();
+  const hiddenRoots = goals.filter((g) => isRootGoal(g) && !matches(g) && g.id !== selected?.id);
 
   const warnings = useMemo(() => {
     const today = isoDate();
@@ -163,10 +182,16 @@ export function GoalsPage() {
     setGoals(next.goals);
     if (next.selected_id) {
       setSelectedId(next.selected_id);
+      const created = next.goals.find((g) => g.id === next.selected_id);
+      if (created && areaId && created.area_id !== areaId) {
+        setAreaId("");
+        const nextParams = new URLSearchParams(params);
+        nextParams.delete("area");
+        setParams(nextParams, { replace: true });
+      }
       setExpanded((prev) => {
         const extra = new Set(prev);
         extra.add(next.selected_id as string);
-        const created = next.goals.find((g) => g.id === next.selected_id);
         if (created?.parent_id) extra.add(created.parent_id);
         return extra;
       });
@@ -219,25 +244,14 @@ export function GoalsPage() {
       notify("上级目标不是进行中状态，先恢复它");
       return;
     }
-    const nextLevel: GoalLevel = level ?? (parent ? childLevel(parent.level) ?? "week" : "life");
+    const nextLevel: GoalLevel = level ?? (parent ? childLevel(parent.level) ?? "week" : "year");
     setForm({
       parent,
       level: nextLevel,
       title: "",
       why: "",
       areaId: parent?.area_id || areas[0]?.id || "",
-      periodLabel: "保存后按自然周期写入",
-    });
-  }
-
-  function openCreateYear() {
-    setForm({
-      parent: null,
-      level: "year",
-      title: "",
-      why: "",
-      areaId: areas[0]?.id || "",
-      periodLabel: "保存后按自然年度写入",
+      periodLabel: periodHint(nextLevel, Boolean(parent)),
     });
   }
 
@@ -291,7 +305,7 @@ export function GoalsPage() {
       if (g.level === "year") return g.period_start.startsWith(String(year));
       return true;
     });
-    const allKids = childrenOf(goal.id);
+    const hasKids = kids.length > 0;
     const area = areas.find((a) => a.id === goal.area_id);
     const open = expanded.has(goal.id);
     const next = childLevel(goal.level);
@@ -301,23 +315,29 @@ export function GoalsPage() {
           className={`goal-row ${selectedId === goal.id ? "selected" : ""}`}
           onClick={() => void openGoal(goal.id)}
         >
-          <span
-            className={`caret ${allKids.length ? "" : "empty"}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (allKids.length) toggleExpand(goal.id);
-            }}
-          >
-            {open ? "▾" : "▸"}
-          </span>
+          {hasKids ? (
+            <button
+              type="button"
+              className="caret"
+              aria-expanded={open}
+              aria-label={open ? "收起子目标" : "展开子目标"}
+              title={open ? "收起" : "展开"}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleExpand(goal.id);
+              }}
+            >
+              {open ? "▾" : "▸"}
+            </button>
+          ) : (
+            <span className="caret empty" />
+          )}
           <span className="bar" style={{ background: area?.color ?? "var(--accent)" }} />
-          <span className="tag level">{LEVEL_LABEL[goal.level]}</span>
+          <LevelTag level={goal.level} />
           <span className={`g-title ${goal.status !== "active" ? "muted-status" : ""}`}>{goal.title}</span>
           <span className={`tag ${goal.status}`}>{STATUS_LABEL[goal.status]}</span>
           <span className="g-progress">
-            <div className="progress thin">
-              <div style={{ width: `${goal.progress}%` }} />
-            </div>
+            <GoalProgress level={goal.level} value={goal.progress} />
           </span>
           <span className="g-pct">{goal.progress}%</span>
           {goal.week_task_total > 0 ? (
@@ -325,7 +345,6 @@ export function GoalsPage() {
               本周 {goal.week_task_done}/{goal.week_task_total}
             </span>
           ) : null}
-          <span className="g-count">{allKids.length ? `${allKids.length} 子目标` : ""}</span>
           {next ? (
             <button
               className="btn sm ghost"
@@ -349,20 +368,18 @@ export function GoalsPage() {
   const activeKidsForDrop = statusModal
     ? collectDescendants(statusModal.id, goals).filter((c) => c.status === "active")
     : [];
+  const formInherited = form ? ancestorWhy(form.parent, byId) : null;
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1 className="page-title">目标</h1>
-          <p className="page-sub">年度和本周是主路径；季、月可选。每个目标都要回答「为什么重要」。</p>
+          <p className="page-sub">年、季、月、周都可以单独立；愿意拆再往下挂。独立的那一层要写为什么，下级可沿用。</p>
         </div>
         <div className="head-actions">
-          <button className="btn" disabled={busy || areas.length === 0} onClick={() => openCreate(null)}>
-            新建人生目标
-          </button>
-          <button className="btn primary" disabled={busy || areas.length === 0} onClick={() => openCreateYear()}>
-            新建年度目标
+          <button className="btn primary" disabled={busy || areas.length === 0} onClick={() => openCreate(null, "year")}>
+            新建目标
           </button>
         </div>
       </div>
@@ -372,12 +389,7 @@ export function GoalsPage() {
         </div>
       ) : null}
       <div className="row wrap mb-16">
-        <Select
-          style={{ width: 110 }}
-          value={String(year)}
-          options={years.map((y) => ({ value: String(y), label: String(y) }))}
-          onChange={(next) => setYear(Number(next))}
-        />
+        <YearPicker style={{ width: 110 }} value={year} onChange={setYear} />
         <Select
           style={{ width: 140 }}
           value={areaId}
@@ -413,15 +425,30 @@ export function GoalsPage() {
           全部收起
         </button>
       </div>
-      <section className="card">
-        {roots.length ? roots.map((g) => <GoalNode key={g.id} goal={g} root />) : <div className="empty">当前筛选下没有目标。</div>}
-      </section>
+      {roots.length ? (
+        <div className="stack">
+          {roots.map((g) => (
+            <section className="card" key={g.id}>
+              <GoalNode goal={g} root />
+            </section>
+          ))}
+        </div>
+      ) : (
+        <section className="card">
+          <div className="empty">
+            {hiddenRoots.length
+              ? "有目标被上面的维度或状态筛掉了。可改成「全部维度」，或点亮对应状态。"
+              : "还没有目标。右上角「新建目标」，选人生 / 年 / 季 / 月 / 周。有上级时，在详情里点「+」往下挂。"}
+          </div>
+        </section>
+      )}
 
       {selected ? (
         <GoalDrawer
           goal={selected}
           parent={selected.parent_id ? byId.get(selected.parent_id) ?? null : null}
           children={childrenOf(selected.id)}
+          byId={byId}
           areas={areas}
           progress={draftProgress ?? selected.progress}
           busy={busy}
@@ -466,6 +493,11 @@ export function GoalsPage() {
           form={form}
           areas={areas}
           busy={busy}
+          inheritedWhy={
+            formInherited
+              ? { text: formInherited.text, fromLabel: LEVEL_LABEL[formInherited.from.level] }
+              : null
+          }
           onClose={() => setForm(null)}
           onSave={(draft) => {
             if (draft.id) {

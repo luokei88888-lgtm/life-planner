@@ -26,10 +26,6 @@ pub fn parent_level(level: &str) -> Option<&'static str> {
     }
 }
 
-pub fn parent_required(level: &str) -> bool {
-    matches!(level, "quarter" | "month" | "week")
-}
-
 pub fn allowed_parent_levels(level: &str) -> &'static [&'static str] {
     match level {
         "year" => &["life"],

@@ -9,6 +9,7 @@ pub const NOT_FOUND: &str = "NOT_FOUND";
 pub const AREA_NAME_TAKEN: &str = "AREA_NAME_TAKEN";
 #[allow(dead_code)]
 pub const AREA_IN_USE: &str = "AREA_IN_USE";
+pub const AREA_FIXED: &str = "AREA_FIXED";
 pub const GOAL_IN_USE: &str = "GOAL_IN_USE";
 pub const GOAL_PARENT_INVALID: &str = "GOAL_PARENT_INVALID";
 pub const STATUS_INVALID: &str = "STATUS_INVALID";

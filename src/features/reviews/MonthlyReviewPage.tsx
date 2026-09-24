@@ -8,8 +8,6 @@ import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
 import { Select } from "../../ui/Select";
 import { MonthSummary } from "./MonthSummary";
-import { PeriodNotes } from "../notes/PeriodNotes";
-import { useReviewNoteQuote } from "./useReviewNoteQuote";
 
 export function MonthlyReviewPage() {
   const { month } = useParams<{ month: string }>();
@@ -25,15 +23,6 @@ export function MonthlyReviewPage() {
   const [areaDraft, setAreaDraft] = useState<Record<string, number>>({});
   const [statusModal, setStatusModal] = useState<{ id: string; to: "paused" | "dropped" } | null>(null);
   const [statusReason, setStatusReason] = useState("");
-  const { onQuote, focusProps } = useReviewNoteQuote(
-    { progress, insight, nextMonth },
-    (key, value) => {
-      if (key === "progress") setProgress(value);
-      else if (key === "insight") setInsight(value);
-      else if (key === "nextMonth") setNextMonth(value);
-    },
-    notify,
-  );
 
   useEffect(() => {
     if (!month) return;
@@ -164,7 +153,6 @@ export function MonthlyReviewPage() {
           </div>
         </div>
         <MonthSummary snap={view.snapshot} frozen />
-        <PeriodNotes notes={view.notes} />
         <section className="card mt-16 stack">
           <div>
             <div className="strong">本月目标推进情况</div>
@@ -223,7 +211,6 @@ export function MonthlyReviewPage() {
       {step === 1 ? (
         <>
           <MonthSummary snap={view.snapshot} />
-          <PeriodNotes notes={view.notes} />
           <div className="row mt-16" style={{ justifyContent: "flex-end" }}>
             <button className="btn primary" onClick={() => setStep(2)}>
               下一步：更新目标
@@ -312,7 +299,6 @@ export function MonthlyReviewPage() {
 
       {step === 3 ? (
         <>
-          <div className="review-qa-layout">
           <section className="card stack qa">
             <div>
               <label htmlFor="mr-progress">1. 本月目标推进情况如何？</label>
@@ -321,7 +307,6 @@ export function MonthlyReviewPage() {
                 maxLength={REVIEW_ANSWER_MAX}
                 value={progress}
                 onChange={(e) => setProgress(e.target.value)}
-                {...focusProps("progress")}
               />
             </div>
             <div>
@@ -332,7 +317,6 @@ export function MonthlyReviewPage() {
                 placeholder="关于自己、关于方法、关于方向"
                 value={insight}
                 onChange={(e) => setInsight(e.target.value)}
-                {...focusProps("insight")}
               />
             </div>
             <div>
@@ -342,12 +326,9 @@ export function MonthlyReviewPage() {
                 maxLength={REVIEW_ANSWER_MAX}
                 value={nextMonth}
                 onChange={(e) => setNextMonth(e.target.value)}
-                {...focusProps("nextMonth")}
               />
             </div>
           </section>
-          <PeriodNotes notes={view.notes} quoteable onQuote={onQuote} />
-          </div>
           <div className="row mt-16 between">
             <button
               className="btn"

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 export function Modal({
   children,
@@ -11,19 +12,21 @@ export function Modal({
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      event.stopImmediatePropagation();
+      onClose();
     }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       className="modal-mask"
       onPointerDown={(event) => {
         downOnMask.current = event.target === event.currentTarget;
       }}
-      onClick={(event) => {
+      onPointerUp={(event) => {
         if (event.target === event.currentTarget && downOnMask.current) onClose();
         downOnMask.current = false;
       }}
@@ -31,6 +34,7 @@ export function Modal({
       <div className="modal" role="dialog" aria-modal="true">
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -263,7 +263,6 @@ export type WeeklyReviewView = {
   satisfaction: number;
   submitted_at: string | null;
   snapshot: WeekSnapshot;
-  notes: Note[];
   next_tasks_created: boolean;
   unfinished: { id: string; title: string }[];
 };
@@ -286,7 +285,6 @@ export type MonthlyReviewView = {
   submitted_at: string | null;
   snapshot: MonthSnapshot;
   goals: MonthGoal[];
-  notes: Note[];
 };
 
 export type OnboardingResult = {
@@ -322,7 +320,6 @@ export type YearlyReviewView = {
   submitted_at: string | null;
   snapshot: YearSnapshot;
   goals: MonthGoal[];
-  notes: Note[];
 };
 
 export type BackupResult = {
