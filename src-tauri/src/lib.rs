@@ -58,6 +58,7 @@ pub fn run() {
             commands::habits::create_habit,
             commands::habits::update_habit,
             commands::habits::set_habit_active,
+            commands::habits::delete_habit,
             commands::habits::toggle_habit_log,
             commands::notes::list_notes,
             commands::notes::list_goal_timeline,

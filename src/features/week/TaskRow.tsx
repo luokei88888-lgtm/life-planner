@@ -41,7 +41,7 @@ export function TaskRow({
       />
       <span className="task-title">
         {task.title}
-        {compact && goal ? <span className="task-goal">{goal.title}</span> : null}
+        {compact && goal ? <span className="task-goal"> · {goal.title}</span> : null}
       </span>
       <div className="task-meta">
         {showUnlinked && !task.goal_id ? <span className="tag unlinked">未关联</span> : null}

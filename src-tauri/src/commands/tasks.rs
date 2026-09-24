@@ -150,6 +150,14 @@ fn validate_planned_date(
     Ok(Some(format_date(date)))
 }
 
+fn can_add_focus(conn: &Connection, date: &str, except_id: Option<&str>) -> Result<bool, AppError> {
+    let limit = catalog().focus_limit_per_day;
+    if limit <= 0 {
+        return Ok(true);
+    }
+    Ok(focus_count(conn, date, except_id)? < limit)
+}
+
 fn focus_count(conn: &Connection, date: &str, except_id: Option<&str>) -> Result<i64, AppError> {
     match except_id {
         Some(id) => conn.query_row(
@@ -220,7 +228,7 @@ pub(crate) fn insert_task(
     let planned_date = validate_planned_date(&week, planned_date)?;
     let is_focus = if try_focus {
         match planned_date.as_deref() {
-            Some(date) => focus_count(conn, date, None)? < catalog().focus_limit_per_day,
+            Some(date) => can_add_focus(conn, date, None)?,
             None => false,
         }
     } else {
@@ -284,16 +292,10 @@ pub fn update_task(
         let keep_focus = task.is_focus && planned_date.is_some();
         if keep_focus {
             if let Some(date) = planned_date.as_deref() {
-                if Some(date) != task.planned_date.as_deref()
-                    && focus_count(conn, date, Some(&id))? >= catalog().focus_limit_per_day
-                {
+                if Some(date) != task.planned_date.as_deref() && !can_add_focus(conn, date, Some(&id))? {
                     return Err(AppError::new(
                         FOCUS_LIMIT,
-                        format!(
-                            "{} 已有 {} 个焦点任务，先取消一个",
-                            date,
-                            catalog().focus_limit_per_day
-                        ),
+                        format!("{} 已有 {} 个焦点任务，先取消一个", date, catalog().focus_limit_per_day),
                     ));
                 }
             }
@@ -326,38 +328,40 @@ pub fn toggle_task(db: State<'_, Db>, id: String) -> Result<WeekPlan, AppError> 
     })
 }
 
+pub(crate) fn toggle_focus_record(conn: &Connection, id: &str) -> Result<WeekPlan, AppError> {
+    let task = get_task(conn, id)?;
+    require_unlocked(conn, &task.week_start)?;
+    if task.is_focus {
+        conn.execute("UPDATE tasks SET is_focus = 0 WHERE id = ?1", [id])?;
+        return week_plan(conn, &task.week_start);
+    }
+    let week = parse_date(&task.week_start)
+        .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
+    let today = today();
+    let date = if let Some(existing) = task.planned_date.as_deref() {
+        existing.to_string()
+    } else if today >= week && today <= add_days(week, 6) {
+        format_date(today)
+    } else {
+        return Err(AppError::new(VALIDATION_FAILED, "先给任务选一个计划日期"));
+    };
+    if !can_add_focus(conn, &date, Some(id))? {
+        let limit = catalog().focus_limit_per_day;
+        return Err(AppError::new(
+            FOCUS_LIMIT,
+            format!("{} 已有 {limit} 个焦点任务，先取消一个", date),
+        ));
+    }
+    conn.execute(
+        "UPDATE tasks SET is_focus = 1, planned_date = ?1 WHERE id = ?2",
+        params![date, id],
+    )?;
+    week_plan(conn, &task.week_start)
+}
+
 #[tauri::command]
 pub fn toggle_focus(db: State<'_, Db>, id: String) -> Result<WeekPlan, AppError> {
-    db::with_conn(&db, |conn| {
-        let task = get_task(conn, &id)?;
-        require_unlocked(conn, &task.week_start)?;
-        if task.is_focus {
-            conn.execute("UPDATE tasks SET is_focus = 0 WHERE id = ?1", [&id])?;
-            return week_plan(conn, &task.week_start);
-        }
-        let week = parse_date(&task.week_start)
-            .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
-        let today = today();
-        let date = if let Some(existing) = task.planned_date.as_deref() {
-            existing.to_string()
-        } else if today >= week && today <= add_days(week, 6) {
-            format_date(today)
-        } else {
-            return Err(AppError::new(VALIDATION_FAILED, "先给任务选一个计划日期"));
-        };
-        let limit = catalog().focus_limit_per_day;
-        if focus_count(conn, &date, Some(&id))? >= limit {
-            return Err(AppError::new(
-                FOCUS_LIMIT,
-                format!("{} 已有 {limit} 个焦点任务，先取消一个", date),
-            ));
-        }
-        conn.execute(
-            "UPDATE tasks SET is_focus = 1, planned_date = ?1 WHERE id = ?2",
-            params![date, id],
-        )?;
-        week_plan(conn, &task.week_start)
-    })
+    db::with_conn(&db, |conn| toggle_focus_record(conn, &id))
 }
 
 #[tauri::command]

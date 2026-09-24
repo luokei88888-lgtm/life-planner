@@ -14,6 +14,7 @@ export function YearlyReviewPage() {
   const navigate = useNavigate();
   const { notify, reload } = useApp();
   const [view, setView] = useState<YearlyReviewView | null>(null);
+  const [missing, setMissing] = useState(false);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -27,6 +28,8 @@ export function YearlyReviewPage() {
   useEffect(() => {
     if (!year) return;
     let cancelled = false;
+    setView(null);
+    setMissing(false);
     (async () => {
       try {
         const next = await api.getYearlyReview(year);
@@ -34,7 +37,10 @@ export function YearlyReviewPage() {
         apply(next, true);
         setStep(1);
       } catch (e) {
-        if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载年复盘");
+        if (!cancelled) {
+          setMissing(true);
+          notify(e instanceof ApiError ? e.message : "无法加载年复盘");
+        }
       }
     })();
     return () => {
@@ -115,6 +121,16 @@ export function YearlyReviewPage() {
   }
 
   if (!year) return <p className="empty">缺少年份。</p>;
+  if (missing) {
+    return (
+      <div>
+        <Link className="muted small" to="/reviews">
+          ← 返回复盘
+        </Link>
+        <p className="empty">无法加载年复盘。</p>
+      </div>
+    );
+  }
   if (!view) return <p className="empty">正在加载年复盘…</p>;
 
   const readonly = view.status === "submitted";

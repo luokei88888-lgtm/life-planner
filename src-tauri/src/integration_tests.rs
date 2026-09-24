@@ -4,7 +4,7 @@ use rusqlite::params;
 use crate::backup;
 use crate::commands::calendar::build_ics;
 use crate::commands::goals::{delete_goal_record, insert_goal, list_all};
-use crate::commands::habits::insert_habit;
+use crate::commands::habits::{delete_habit_record, insert_habit};
 use crate::commands::areas::{apply_scores, AreaScoreInput};
 use crate::commands::onboarding::{complete_onboarding_record, OnboardingPayload};
 use crate::commands::reviews::{
@@ -12,10 +12,10 @@ use crate::commands::reviews::{
     submit_monthly_review_record, submit_yearly_review_record, weekly_view, yearly_view,
 };
 use crate::commands::settings;
-use crate::commands::tasks::{carry_unfinished_from, insert_task};
+use crate::commands::tasks::{carry_unfinished_from, insert_task, toggle_focus_record};
 use crate::db;
 use crate::domain::{self, format_date, today, week_start};
-use crate::error::REVIEW_NOT_DUE;
+use crate::error::{NOT_FOUND, REVIEW_NOT_DUE};
 
 fn conn() -> rusqlite::Connection {
     db::open_memory().expect("memory db")
@@ -271,6 +271,114 @@ fn delete_goal_unlinks_habit() {
         .query_row("SELECT goal_id FROM habits WHERE title = '喝水'", [], |row| row.get(0))
         .unwrap();
     assert!(linked.is_none());
+}
+
+#[test]
+fn delete_habit_removes_logs() {
+    let conn = conn();
+    insert_habit(&conn, "要删的习惯", "a1", "daily", 7, None, "form").unwrap();
+    let id: String = conn
+        .query_row("SELECT id FROM habits WHERE title = '要删的习惯'", [], |row| row.get(0))
+        .unwrap();
+    let day = format_date(today());
+    conn.execute(
+        "INSERT INTO habit_logs (habit_id, date, done) VALUES (?1, ?2, 1)",
+        params![id, day],
+    )
+    .unwrap();
+    delete_habit_record(&conn, &id).unwrap();
+    let habits: i64 = conn
+        .query_row("SELECT COUNT(1) FROM habits WHERE id = ?1", [&id], |row| row.get(0))
+        .unwrap();
+    let logs: i64 = conn
+        .query_row("SELECT COUNT(1) FROM habit_logs WHERE habit_id = ?1", [&id], |row| row.get(0))
+        .unwrap();
+    assert_eq!(habits, 0);
+    assert_eq!(logs, 0);
+}
+
+#[test]
+fn delete_habit_missing_is_not_found() {
+    let conn = conn();
+    let err = delete_habit_record(&conn, "h_missing").unwrap_err();
+    assert_eq!(err.code, NOT_FOUND);
+}
+
+#[test]
+fn delete_habit_keeps_submitted_weekly_snapshot() {
+    let conn = conn();
+    insert_habit(&conn, "要删的阅读", "a2", "daily", 7, None, "form").unwrap();
+    let week = format_date(week_start(today(), 1));
+    let view = weekly_view(&conn, &week).unwrap();
+    assert!(view.snapshot.habits.iter().any(|h| h.title == "要删的阅读"));
+    let snap = serde_json::to_string(&view.snapshot).unwrap();
+    conn.execute(
+        "INSERT INTO weekly_reviews (id, week_start, summary_snapshot, status, submitted_at)
+         VALUES (?1, ?2, ?3, 'submitted', datetime('now'))",
+        params!["wr_keep", week, snap],
+    )
+    .unwrap();
+    let id: String = conn
+        .query_row("SELECT id FROM habits WHERE title = '要删的阅读'", [], |row| row.get(0))
+        .unwrap();
+    delete_habit_record(&conn, &id).unwrap();
+    let after = weekly_view(&conn, &week).unwrap();
+    assert!(
+        after.snapshot.habits.iter().any(|h| h.title == "要删的阅读"),
+        "submitted snapshot should still list the habit"
+    );
+    let left: i64 = conn
+        .query_row("SELECT COUNT(1) FROM habits WHERE title = '要删的阅读'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(left, 0);
+}
+
+#[test]
+fn focus_has_no_daily_cap() {
+    let conn = conn();
+    let day = format_date(today());
+    let week = format_date(week_start(today(), 1));
+    for i in 0..4 {
+        insert_task(&conn, &format!("焦点{i}"), &week, None, Some(&day), true).unwrap();
+    }
+    let n: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM tasks WHERE is_focus = 1 AND planned_date = ?1",
+            [&day],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(n, 4);
+}
+
+#[test]
+fn toggle_focus_has_no_daily_cap() {
+    let conn = conn();
+    let day = format_date(today());
+    let week = format_date(week_start(today(), 1));
+    for i in 0..4 {
+        insert_task(&conn, &format!("星标{i}"), &week, None, Some(&day), false).unwrap();
+    }
+    let ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM tasks WHERE title LIKE '星标%' ORDER BY title")
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    for id in &ids {
+        toggle_focus_record(&conn, id).unwrap();
+    }
+    let starred: i64 = conn
+        .query_row(
+            "SELECT COUNT(1) FROM tasks WHERE is_focus = 1 AND planned_date = ?1",
+            [&day],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(starred, 4);
 }
 
 #[test]

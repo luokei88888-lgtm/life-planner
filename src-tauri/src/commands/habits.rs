@@ -437,6 +437,20 @@ pub fn set_habit_active(
     })
 }
 
+pub(crate) fn delete_habit_record(conn: &Connection, id: &str) -> Result<(), AppError> {
+    get_record(conn, id)?;
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM habit_logs WHERE habit_id = ?1", [id])?;
+    tx.execute("DELETE FROM habits WHERE id = ?1", [id])?;
+    tx.commit()?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_habit(db: State<'_, Db>, id: String) -> Result<(), AppError> {
+    db::with_conn(&db, |conn| delete_habit_record(conn, &id))
+}
+
 #[tauri::command]
 pub fn toggle_habit_log(
     db: State<'_, Db>,

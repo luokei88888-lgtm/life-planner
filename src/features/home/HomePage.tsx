@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import {
-  FOCUS_LIMIT,
   HABIT_KIND_LABEL,
+  HOME_TODAY_LIST_MAX,
   areaScorePercent,
   habitCheckLabel,
   habitKindOf,
@@ -153,7 +153,7 @@ export function HomePage() {
         </section>
       ) : null}
 
-      <div className="home-today">
+      <div className="home-today" style={{ ["--home-today-rows" as string]: HOME_TODAY_LIST_MAX }}>
         <section className="card live-card">
           <div className="card-title">
             今日焦点{" "}
@@ -162,7 +162,8 @@ export function HomePage() {
             </span>
           </div>
           {focus.length ? (
-            focus.map((t) => {
+            <div className="home-today-list">
+            {focus.map((t) => {
               const goal = t.goal_id ? allGoals.find((g) => g.id === t.goal_id) : undefined;
               const area = goal ? areas.find((a) => a.id === goal.area_id) : undefined;
               return (
@@ -178,15 +179,14 @@ export function HomePage() {
                   onFocus={() => void mutate(() => api.toggleFocus(t.id))}
                 />
               );
-            })
+            })}
+            </div>
           ) : (
             <p className="empty">今天还没有焦点任务。到「任务」里点亮星标。</p>
           )}
-          {focus.length < FOCUS_LIMIT ? (
-            <Link className="add-line" to="/week">
-              + 还可以再选 {FOCUS_LIMIT - focus.length} 个焦点
-            </Link>
-          ) : null}
+          <Link className="add-line" to="/week">
+            + 到任务里选今天的焦点
+          </Link>
         </section>
         <section className="card live-card">
           <div className="card-title">
@@ -196,7 +196,8 @@ export function HomePage() {
             </span>
           </div>
           {habits.length ? (
-            habits.map((h) => {
+            <div className="home-today-list">
+            {habits.map((h) => {
               const area = areas.find((a) => a.id === h.area_id);
               const kind = habitKindOf(h.kind);
               return (
@@ -235,7 +236,8 @@ export function HomePage() {
                   </span>
                 </div>
               );
-            })
+            })}
+            </div>
           ) : (
             <p className="empty">还没有习惯。到「习惯」里新建养成或戒除。</p>
           )}

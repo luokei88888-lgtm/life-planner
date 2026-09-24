@@ -18,21 +18,31 @@ export function ReviewsPage() {
   const { notify } = useApp();
   const [tab, setTab] = useState<"pending" | "history">("pending");
   const [data, setData] = useState<ReviewList | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const next = await api.listReviews();
-        if (!cancelled) setData(next);
+        if (cancelled) return;
+        setData(next);
+        setLoadError(false);
       } catch (e) {
-        if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载复盘");
+        if (!cancelled) {
+          setLoadError(true);
+          notify(e instanceof ApiError ? e.message : "无法加载复盘");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [notify]);
+
+  const loadState = !data ? (
+    <p className="empty">{loadError ? "无法加载复盘。" : "正在加载…"}</p>
+  ) : null;
 
   const pending = data?.pending ?? [];
   const history = data?.history ?? [];
@@ -76,82 +86,88 @@ export function ReviewsPage() {
 
       {tab === "pending" ? (
         <section className="card">
-          {pending.length ? (
-            pending.map((p) => (
-            <div className="review-item" key={`${p.kind}-${p.key}`}>
-              <span className={`tag ${p.kind === "weekly" ? "" : "level"}`}>
-                {p.kind === "weekly" ? "周复盘" : p.kind === "monthly" ? "月复盘" : "年复盘"}
-              </span>
-              <div className="r-title">
-                <div className="strong">
-                  {p.kind === "weekly"
-                    ? `${weekLabel(p.key)} · 第 ${weekNo(p.key)} 周`
-                    : p.kind === "monthly"
-                      ? fmtMonth(p.key)
-                      : `${p.key} 年`}
-                </div>
-                <div className="muted small">{p.draft ? "草稿已保存，继续完成" : "尚未开始"}</div>
-              </div>
-              <Link className="btn primary sm" to={`/reviews/${p.kind}/${p.key}`}>
-                {p.draft ? "继续" : "开始"}
-              </Link>
-            </div>
-          ))
-          ) : (
-            <p className="empty">没有需要补写的复盘。</p>
-          )}
-          {data && weekCta ? (
-            <div className="review-item">
-              <span className="tag">周复盘</span>
-              <div className="r-title">
-                <div className="strong">{weekLabel(data.this_week)} · 本周</div>
-                <div className="muted small">{weekReady ? weekCta.sub : weekReviewWaitLabel(data.this_week)}</div>
-              </div>
-              {weekReady ? (
-                <Link className={actionClass(weekCta.btn)} to={`/reviews/weekly/${data.this_week}`}>
-                  {weekCta.btn}
-                </Link>
+          {loadState}
+          {data ? (
+            <>
+              {pending.length ? (
+                pending.map((p) => (
+                  <div className="review-item" key={`${p.kind}-${p.key}`}>
+                    <span className={`tag ${p.kind === "weekly" ? "" : "level"}`}>
+                      {p.kind === "weekly" ? "周复盘" : p.kind === "monthly" ? "月复盘" : "年复盘"}
+                    </span>
+                    <div className="r-title">
+                      <div className="strong">
+                        {p.kind === "weekly"
+                          ? `${weekLabel(p.key)} · 第 ${weekNo(p.key)} 周`
+                          : p.kind === "monthly"
+                            ? fmtMonth(p.key)
+                            : `${p.key} 年`}
+                      </div>
+                      <div className="muted small">{p.draft ? "草稿已保存，继续完成" : "尚未开始"}</div>
+                    </div>
+                    <Link className="btn primary sm" to={`/reviews/${p.kind}/${p.key}`}>
+                      {p.draft ? "继续" : "开始"}
+                    </Link>
+                  </div>
+                ))
               ) : (
-                <span className="muted small">{weekReviewWaitLabel(data.this_week)}</span>
+                <p className="empty">没有需要补写的复盘。</p>
               )}
-            </div>
-          ) : (
-            <p className="empty">正在加载…</p>
-          )}
+              {weekCta ? (
+                <div className="review-item">
+                  <span className="tag">周复盘</span>
+                  <div className="r-title">
+                    <div className="strong">{weekLabel(data.this_week)} · 本周</div>
+                    <div className="muted small">{weekReady ? weekCta.sub : weekReviewWaitLabel(data.this_week)}</div>
+                  </div>
+                  {weekReady ? (
+                    <Link className={actionClass(weekCta.btn)} to={`/reviews/weekly/${data.this_week}`}>
+                      {weekCta.btn}
+                    </Link>
+                  ) : (
+                    <span className="muted small">{weekReviewWaitLabel(data.this_week)}</span>
+                  )}
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </section>
       ) : (
         <section className="card">
-          {history.length ? (
-            history.map((x) => (
-              <div className="review-item" key={`${x.kind}-${x.key}`}>
-                <span className={`tag ${x.kind === "weekly" ? "" : "level"}`}>
-                  {x.kind === "weekly" ? "周复盘" : x.kind === "monthly" ? "月复盘" : "年复盘"}
-                </span>
-                <div className="r-title">
-                  <div className="strong">
-                    {x.kind === "weekly" ? weekLabel(x.key) : x.kind === "monthly" ? fmtMonth(x.key) : `${x.key} 年`}
-                  </div>
-                  <div className="muted small">
-                    {x.status === "skipped"
-                      ? "已跳过"
-                      : x.submitted_at
-                        ? `提交于 ${x.submitted_at.slice(0, 10)}`
-                        : "已提交"}
-                  </div>
-                </div>
-                {x.status === "submitted" && x.satisfaction != null ? (
-                  <span className="muted small">
-                    满意度 <b>{x.satisfaction}</b>/10
+          {loadState}
+          {data ? (
+            history.length ? (
+              history.map((x) => (
+                <div className="review-item" key={`${x.kind}-${x.key}`}>
+                  <span className={`tag ${x.kind === "weekly" ? "" : "level"}`}>
+                    {x.kind === "weekly" ? "周复盘" : x.kind === "monthly" ? "月复盘" : "年复盘"}
                   </span>
-                ) : null}
-                <Link className="btn sm" to={`/reviews/${x.kind}/${x.key}`}>
-                  查看
-                </Link>
-              </div>
-            ))
-          ) : (
-            <p className="empty">还没有历史复盘。</p>
-          )}
+                  <div className="r-title">
+                    <div className="strong">
+                      {x.kind === "weekly" ? weekLabel(x.key) : x.kind === "monthly" ? fmtMonth(x.key) : `${x.key} 年`}
+                    </div>
+                    <div className="muted small">
+                      {x.status === "skipped"
+                        ? "已跳过"
+                        : x.submitted_at
+                          ? `提交于 ${x.submitted_at.slice(0, 10)}`
+                          : "已提交"}
+                    </div>
+                  </div>
+                  {x.status === "submitted" && x.satisfaction != null ? (
+                    <span className="muted small">
+                      满意度 <b>{x.satisfaction}</b>/10
+                    </span>
+                  ) : null}
+                  <Link className="btn sm" to={`/reviews/${x.kind}/${x.key}`}>
+                    查看
+                  </Link>
+                </div>
+              ))
+            ) : (
+              <p className="empty">还没有历史复盘。</p>
+            )
+          ) : null}
         </section>
       )}
     </>

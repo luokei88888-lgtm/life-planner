@@ -13,6 +13,7 @@ export function WeeklyReviewPage() {
   const navigate = useNavigate();
   const { notify } = useApp();
   const [view, setView] = useState<WeeklyReviewView | null>(null);
+  const [missing, setMissing] = useState(false);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [wentWell, setWentWell] = useState("");
@@ -28,6 +29,8 @@ export function WeeklyReviewPage() {
   useEffect(() => {
     if (!weekStart) return;
     let cancelled = false;
+    setView(null);
+    setMissing(false);
     (async () => {
       try {
         const next = await api.getWeeklyReview(weekStart);
@@ -40,7 +43,10 @@ export function WeeklyReviewPage() {
         setSatisfaction(next.satisfaction);
         setStep(1);
       } catch (e) {
-        if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载周复盘");
+        if (!cancelled) {
+          setMissing(true);
+          notify(e instanceof ApiError ? e.message : "无法加载周复盘");
+        }
       }
     })();
     return () => {
@@ -49,6 +55,16 @@ export function WeeklyReviewPage() {
   }, [weekStart, notify]);
 
   if (!weekStart) return <p className="empty">缺少周次。</p>;
+  if (missing) {
+    return (
+      <div>
+        <Link className="muted small" to="/reviews">
+          ← 返回复盘
+        </Link>
+        <p className="empty">无法加载周复盘。</p>
+      </div>
+    );
+  }
   if (!view) return <p className="empty">正在加载周复盘…</p>;
 
   const readonly = view.status === "submitted" || view.status === "skipped";

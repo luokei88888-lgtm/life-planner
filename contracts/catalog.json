@@ -28,7 +28,8 @@
     "week": 7
   },
   "taskTitleMax": 100,
-  "focusLimitPerDay": 3,
+  "focusLimitPerDay": 0,
+  "homeTodayListMax": 5,
   "habitTitleMax": 40,
   "habitBackfillDays": 7,
   "habitKinds": ["form", "break"],

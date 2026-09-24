@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import { habitCheckLabel, HABIT_KIND_LABEL, habitFreqLabel, habitHeatLegend, habitHeatTitle, habitKindOf, habitToggleError, HabitKind } from "../../shared/constants";
 import { daysInMonth, fmtMd, fmtMonth, isoDate, mondayOffset, weekdayLabel } from "../../shared/time";
 import type { Goal, HabitDetail } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
+import { Modal } from "../../ui/Modal";
 import { HabitFormModal, type HabitFormState } from "./HabitFormModal";
 
 export function HabitDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { areas, notify } = useApp();
   const [habit, setHabit] = useState<HabitDetail | null>(null);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<HabitFormState | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const today = isoDate();
 
   useEffect(() => {
@@ -140,7 +143,7 @@ export function HabitDetailPage() {
             编辑
           </button>
           <button
-            className={`btn ${habit.is_active ? "danger" : "primary"}`}
+            className={habit.is_active ? "btn" : "btn primary"}
             disabled={busy}
             onClick={() => {
               void (async () => {
@@ -158,6 +161,9 @@ export function HabitDetailPage() {
             }}
           >
             {habit.is_active ? "停用" : "启用"}
+          </button>
+          <button className="btn danger" disabled={busy} type="button" onClick={() => setConfirmDelete(true)}>
+            删除
           </button>
         </div>
       </div>
@@ -276,6 +282,39 @@ export function HabitDetailPage() {
             })();
           }}
         />
+      ) : null}
+      {confirmDelete ? (
+        <Modal onClose={() => { if (!busy) setConfirmDelete(false); }}>
+          <h3>删除这个习惯？</h3>
+          <p className="muted">
+            会连「{habit.title}」的打卡记录一起删掉。已经提交的复盘不受影响。暂时不练请用停用。
+          </p>
+          <div className="modal-foot">
+            <button className="btn" type="button" disabled={busy} onClick={() => setConfirmDelete(false)}>
+              取消
+            </button>
+            <button
+              className="btn danger"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    await api.deleteHabit(habit.id);
+                    notify("已删除");
+                    navigate("/habits", { replace: true });
+                  } catch (e) {
+                    notify(e instanceof ApiError ? e.message : "删除失败");
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              删除
+            </button>
+          </div>
+        </Modal>
       ) : null}
     </>
   );

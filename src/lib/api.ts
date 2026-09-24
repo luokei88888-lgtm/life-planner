@@ -167,6 +167,7 @@ export const api = {
     }),
   setHabitActive: (id: string, active: boolean) =>
     cmd<HabitDetail>("set_habit_active", { id, active }),
+  deleteHabit: (id: string) => cmd<void>("delete_habit", { id }),
   toggleHabitLog: (id: string, date: string) => cmd<HabitDetail>("toggle_habit_log", { id, date }),
   listReviews: () => cmd<ReviewList>("list_reviews"),
   getWeeklyReview: (weekStart: string) =>
