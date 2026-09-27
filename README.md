@@ -87,7 +87,7 @@ Windows 上的本地人生规划工具。没有账号，没有云，数据只在
 
 ## 怎么开始
 
-别人用，不用克隆仓库，也不用装开发环境。去 GitHub 的 [Releases](https://github.com/luokei88888-lgtm/life-planner/releases) 页，下载最新的 `人生规划_1.0.0_x64-setup.exe`。
+别人用，不用克隆仓库，也不用装开发环境。去 GitHub 的 [Releases](https://github.com/luokei88888-lgtm/life-planner/releases) 页，下载最新的 `LifePlanner_1.0.0_x64-setup.exe`。
 
 1. 当前用户安装即可，一般不用管理员。
 2. 系统需要 WebView2，安装包会在缺少时帮你下载。
