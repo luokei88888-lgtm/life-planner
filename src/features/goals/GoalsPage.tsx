@@ -11,7 +11,7 @@ import {
   type GoalLevel,
   type GoalStatus,
 } from "../../shared/constants";
-import { isoDate, monthOf, weekStartOf } from "../../shared/time";
+import { isoDate, monthOf, weekLabel, weekSlotName, weekStartOf } from "../../shared/time";
 import type { Goal, GoalMutation } from "../../shared/types";
 import { useApp } from "../../app/AppContext";
 import { Modal } from "../../ui/Modal";
@@ -252,6 +252,7 @@ export function GoalsPage() {
       why: "",
       areaId: parent?.area_id || areas[0]?.id || "",
       periodLabel: periodHint(nextLevel, Boolean(parent)),
+      weekOffset: 0,
     });
   }
 
@@ -265,6 +266,7 @@ export function GoalsPage() {
       why: goal.why,
       areaId: goal.area_id,
       periodLabel: `${goal.period_start} 至 ${goal.period_end}`,
+      weekOffset: 0,
     });
   }
 
@@ -335,6 +337,11 @@ export function GoalsPage() {
           <span className="bar" style={{ background: area?.color ?? "var(--accent)" }} />
           <LevelTag level={goal.level} />
           <span className={`g-title ${goal.status !== "active" ? "muted-status" : ""}`}>{goal.title}</span>
+          {goal.level === "week" ? (
+            <span className="g-when">
+              {weekSlotName(goal.period_start, settings.week_starts_on) ?? weekLabel(goal.period_start)}
+            </span>
+          ) : null}
           <span className={`tag ${goal.status}`}>{STATUS_LABEL[goal.status]}</span>
           <span className="g-progress">
             <GoalProgress level={goal.level} value={goal.progress} />
@@ -493,6 +500,7 @@ export function GoalsPage() {
           form={form}
           areas={areas}
           busy={busy}
+          weekStartsOn={settings.week_starts_on}
           inheritedWhy={
             formInherited
               ? { text: formInherited.text, fromLabel: LEVEL_LABEL[formInherited.from.level] }
@@ -515,6 +523,7 @@ export function GoalsPage() {
                     level: draft.level,
                     parentId: draft.parent?.id ?? null,
                     year,
+                    weekOffset: draft.level === "week" ? draft.weekOffset : 0,
                   }),
                 "目标已创建",
               );

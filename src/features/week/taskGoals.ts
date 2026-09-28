@@ -63,6 +63,10 @@ export function taskGoalSelectOptions(
   weekStart: string,
   areas: Pick<Area, "id" | "color">[],
   currentId = "",
+  groups: { week: string; ancestor: string } = {
+    week: "本周目标",
+    ancestor: "覆盖本周的上级目标",
+  },
 ): SelectOption[] {
   const week = goals.filter((g) => isTaskWeekGoal(g, weekStart) && g.status === "active");
   const up = goals.filter((g) => isTaskAncestorGoal(g, weekStart));
@@ -81,8 +85,8 @@ export function taskGoalSelectOptions(
   });
 
   const options: SelectOption[] = [{ value: "", label: "不关联目标" }];
-  options.push(...week.map((g) => toOption(g, "本周目标")));
-  options.push(...up.map((g) => toOption(g, "覆盖本周的上级目标")));
+  options.push(...week.map((g) => toOption(g, groups.week)));
+  options.push(...up.map((g) => toOption(g, groups.ancestor)));
   if (extra) options.push(toOption(extra, "当前关联"));
   return options;
 }

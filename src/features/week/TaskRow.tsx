@@ -48,12 +48,10 @@ export function TaskRow({
         {!compact && task.carried_over_count > 0 ? (
           <span className="tag">已拖 {task.carried_over_count} 周</span>
         ) : null}
-        {compact ? null : task.planned_date ? (
+        {compact || !task.planned_date ? null : (
           <span className="muted small">
             {fmtMd(task.planned_date)} {weekdayLabel(task.planned_date)}
           </span>
-        ) : (
-          <span className="muted small">未定日期</span>
         )}
         {locked ? null : (
           <button

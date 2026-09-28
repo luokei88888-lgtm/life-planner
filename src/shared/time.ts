@@ -48,6 +48,13 @@ export function weekLabel(ws: string) {
   return `${fmtMd(ws)} – ${fmtMd(addDays(ws, 6))}`;
 }
 
+export function weekSlotName(periodStart: string, weekStartsOn = 1, today = isoDate()) {
+  const thisWeek = weekStartOf(today, weekStartsOn);
+  if (periodStart === thisWeek) return "本周";
+  if (periodStart === addDays(thisWeek, 7)) return "下周";
+  return null;
+}
+
 export function weekNo(iso: string) {
   const d = parseIso(iso);
   d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));

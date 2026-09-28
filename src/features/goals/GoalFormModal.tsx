@@ -8,6 +8,7 @@ import {
   type GoalLevel,
 } from "../../shared/constants";
 import type { Area, Goal } from "../../shared/types";
+import { addDays, isoDate, weekLabel, weekStartOf } from "../../shared/time";
 import { Modal } from "../../ui/Modal";
 import { Select } from "../../ui/Select";
 
@@ -19,7 +20,19 @@ export type GoalFormState = {
   why: string;
   areaId: string;
   periodLabel: string;
+  weekOffset: 0 | 1;
 };
+
+export function weekChoiceRange(offset: 0 | 1, weekStartsOn: number) {
+  const start = addDays(weekStartOf(isoDate(), weekStartsOn), offset * 7);
+  return { start, end: addDays(start, 6), label: weekLabel(start) };
+}
+
+export function nextWeekFitsParent(parent: Goal | null | undefined, weekStartsOn: number) {
+  if (!parent || parent.level === "life") return true;
+  const next = weekChoiceRange(1, weekStartsOn);
+  return next.start >= parent.period_start && next.end <= parent.period_end;
+}
 
 export function periodHint(level: GoalLevel, hasParent: boolean) {
   if (hasParent) return "保存后按自然周期写入，并落在上级周期内";
@@ -41,6 +54,7 @@ export function GoalFormModal({
   form,
   areas,
   busy,
+  weekStartsOn,
   inheritedWhy,
   onClose,
   onSave,
@@ -48,6 +62,7 @@ export function GoalFormModal({
   form: GoalFormState;
   areas: Area[];
   busy: boolean;
+  weekStartsOn: number;
   inheritedWhy?: { text: string; fromLabel: string } | null;
   onClose: () => void;
   onSave: (next: GoalFormState) => void;
@@ -59,9 +74,17 @@ export function GoalFormModal({
   const lockedArea = areas.find((a) => a.id === lockedAreaId);
   const canPickLevel = !draft.id && !draft.parent;
   const whyRequired = goalWhyRequired(draft.level, Boolean(draft.parent));
+  const choosingWeek = draft.level === "week" && !draft.id;
+  const nextFits = nextWeekFitsParent(draft.parent, weekStartsOn);
+  const thisWeek = weekChoiceRange(0, weekStartsOn);
+  const nextWeek = weekChoiceRange(1, weekStartsOn);
   const hint = draft.id
     ? "周期在创建时按自然层级写入，编辑不改周期。"
-    : periodHint(draft.level, Boolean(draft.parent));
+    : choosingWeek
+      ? draft.weekOffset === 1
+        ? "保存后写入下一周。再往后的周不能提前建。"
+        : "保存后写入本周。需要的话可以改选下一周。"
+      : periodHint(draft.level, Boolean(draft.parent));
 
   return (
     <Modal onClose={onClose}>
@@ -85,6 +108,7 @@ export function GoalFormModal({
               setDraft({
                 ...draft,
                 level: level as GoalLevel,
+                weekOffset: 0,
                 periodLabel: periodHint(level as GoalLevel, false),
               })
             }
@@ -144,8 +168,29 @@ export function GoalFormModal({
       </div>
       <div className="field">
         <label htmlFor="gf-period">周期</label>
-        <input id="gf-period" type="text" value={draft.periodLabel} disabled />
-        <div className="hint">{hint}</div>
+        {choosingWeek ? (
+          <Select
+            id="gf-period"
+            value={String(draft.weekOffset)}
+            options={[
+              { value: "0", label: `本周 · ${thisWeek.label}` },
+              {
+                value: "1",
+                label: `下周 · ${nextWeek.label}`,
+                disabled: !nextFits,
+              },
+            ]}
+            onChange={(value) =>
+              setDraft({ ...draft, weekOffset: value === "1" && nextFits ? 1 : 0 })
+            }
+          />
+        ) : (
+          <input id="gf-period" type="text" value={draft.periodLabel} disabled />
+        )}
+        <div className="hint">
+          {hint}
+          {choosingWeek && !nextFits ? " 下周超出了上级目标的周期。" : ""}
+        </div>
       </div>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>

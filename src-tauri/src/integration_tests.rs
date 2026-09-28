@@ -3,7 +3,7 @@ use rusqlite::params;
 
 use crate::backup;
 use crate::commands::calendar::build_ics;
-use crate::commands::goals::{delete_goal_record, insert_goal, list_all};
+use crate::commands::goals::{delete_goal_record, insert_goal, insert_goal_offset, list_all};
 use crate::commands::habits::{delete_habit_record, insert_habit};
 use crate::commands::areas::{apply_scores, AreaScoreInput};
 use crate::commands::onboarding::{complete_onboarding_record, OnboardingPayload};
@@ -15,7 +15,7 @@ use crate::commands::settings;
 use crate::commands::tasks::{carry_unfinished_from, insert_task, toggle_focus_record};
 use crate::db;
 use crate::domain::{self, format_date, today, week_start};
-use crate::error::{NOT_FOUND, REVIEW_NOT_DUE};
+use crate::error::{NOT_FOUND, REVIEW_NOT_DUE, VALIDATION_FAILED};
 
 fn conn() -> rusqlite::Connection {
     db::open_memory().expect("memory db")
@@ -180,6 +180,127 @@ fn week_goal_can_hang_on_year() {
         .0;
     assert!(insert_goal(&conn, "不能挂人生", "周目标不能直接挂人生目标", "a6", "week", Some(&life_id), 2026).is_err());
     assert!(insert_goal(&conn, "错维周目标", "下级必须和上级在同一维度所以这里应该失败", "a2", "week", Some(&year_id), 2026).is_err());
+}
+
+#[test]
+fn week_goal_accepts_only_this_or_next_week() {
+    let conn = conn();
+    let year = i64::from(today().year());
+    let (next_id, _) = insert_goal_offset(
+        &conn,
+        "下周先把材料交出去",
+        "这件事先定在下周，不放到更远",
+        "a1",
+        "week",
+        None,
+        year,
+        1,
+    )
+    .unwrap();
+    let next = list_all(&conn)
+        .unwrap()
+        .into_iter()
+        .find(|goal| goal.id == next_id)
+        .expect("next week goal");
+    let expected = week_start(domain::add_days(today(), 7), 1);
+    assert_eq!(next.period_start, format_date(expected));
+    assert_eq!(next.period_end, format_date(domain::add_days(expected, 6)));
+
+    let too_far = insert_goal_offset(
+        &conn,
+        "再往后一周",
+        "周目标不能跳过下周",
+        "a1",
+        "week",
+        None,
+        year,
+        2,
+    )
+    .err()
+    .expect("offset 2");
+    assert_eq!(too_far.code, VALIDATION_FAILED);
+
+    let (year_id, _) = insert_goal(
+        &conn,
+        "今年推进",
+        "用来卡住超出上级周期的下周目标",
+        "a1",
+        "year",
+        None,
+        year,
+    )
+    .unwrap();
+    let not_week = insert_goal_offset(
+        &conn,
+        "月目标不能选下周",
+        "",
+        "a1",
+        "month",
+        Some(&year_id),
+        year,
+        1,
+    )
+    .err()
+    .expect("month offset");
+    assert_eq!(not_week.code, VALIDATION_FAILED);
+
+    conn.execute(
+        "UPDATE goals SET period_end = ?1 WHERE id = ?2",
+        params![format_date(today()), year_id],
+    )
+    .unwrap();
+    let outside = insert_goal_offset(
+        &conn,
+        "上级到今天为止",
+        "",
+        "a1",
+        "week",
+        Some(&year_id),
+        year,
+        1,
+    )
+    .err()
+    .expect("outside parent");
+    assert_eq!(outside.code, VALIDATION_FAILED);
+    assert!(outside.message.contains("上级"));
+}
+
+#[test]
+fn next_week_goal_accepts_only_that_weeks_tasks() {
+    let conn = conn();
+    let year = i64::from(today().year());
+    let (goal_id, _) = insert_goal_offset(
+        &conn,
+        "下周少吃",
+        "只在下周执行",
+        "a1",
+        "week",
+        None,
+        year,
+        1,
+    )
+    .unwrap();
+    let this_week = format_date(week_start(today(), 1));
+    let next_week = format_date(week_start(domain::add_days(today(), 7), 1));
+    let wrong = insert_task(&conn, "不该挂到本周", &this_week, Some(&goal_id), None, false);
+    assert!(wrong.is_err());
+    insert_task(&conn, "下周才做", &next_week, Some(&goal_id), None, false).unwrap();
+    let week: String = conn
+        .query_row(
+            "SELECT week_start FROM tasks WHERE title = '下周才做'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(week, next_week);
+    let undated: Option<String> = conn
+        .query_row(
+            "SELECT planned_date FROM tasks WHERE title = '下周才做'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(undated.is_none());
 }
 
 #[test]

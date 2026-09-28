@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import { LEVEL_LABEL, STATUS_LABEL, childLevelsOf, type GoalLevel, type GoalStatus } from "../../shared/constants";
 import type { Area, Goal, GoalTimelineItem, Task } from "../../shared/types";
-import { fmtNoteDay, isoDate, weekStartOf } from "../../shared/time";
+import { fmtNoteDay, isoDate, weekLabel, weekSlotName, weekStartOf } from "../../shared/time";
 import { useApp } from "../../app/AppContext";
 import { TaskRow } from "../week/TaskRow";
 import { LevelTag, levelToneStyle } from "../../ui/levelTone";
@@ -56,7 +56,8 @@ export function GoalDrawer({
   const area = areas.find((a) => a.id === goal.area_id);
   const thisWeek = weekStartOf(isoDate(), settings.week_starts_on);
   const thisWeekTasks = tasks.filter((t) => t.week_start === thisWeek);
-  const earlierTasks = tasks.filter((t) => t.week_start !== thisWeek);
+  const laterTasks = tasks.filter((t) => t.week_start > thisWeek);
+  const earlierTasks = tasks.filter((t) => t.week_start < thisWeek);
   const ownWhy = goal.why.trim();
   const inherited = ownWhy ? null : ancestorWhy(parent, byId);
 
@@ -163,7 +164,9 @@ export function GoalDrawer({
           </span>
           <span className="k">周期</span>
           <span>
-            {goal.period_start} 至 {goal.period_end}
+            {goal.level === "week"
+              ? `${weekSlotName(goal.period_start, settings.week_starts_on) ?? "周"} · ${weekLabel(goal.period_start)}`
+              : `${goal.period_start} 至 ${goal.period_end}`}
           </span>
           <span className="k">上级目标</span>
           <span>
@@ -300,7 +303,10 @@ export function GoalDrawer({
               <span className="strong">
                 任务（{tasks.filter((t) => t.status === "done").length}/{tasks.length}）
               </span>
-              <Link className="btn sm" to="/week">
+              <Link
+                className="btn sm"
+                to={goal.level === "week" ? `/week?ws=${goal.period_start}` : "/week"}
+              >
                 去任务
               </Link>
             </div>
@@ -323,6 +329,27 @@ export function GoalDrawer({
                         locked={weekLocked}
                         onToggle={() => void mutateTask(() => api.toggleTask(t.id))}
                         onFocus={() => void mutateTask(() => api.toggleFocus(t.id))}
+                      />
+                    ))}
+                  </>
+                ) : null}
+                {laterTasks.length ? (
+                  <>
+                    <div className="task-group-title">
+                      之后
+                      <span className="muted small">
+                        {laterTasks.filter((t) => t.status === "done").length}/{laterTasks.length}
+                      </span>
+                    </div>
+                    {laterTasks.map((t) => (
+                      <TaskRow
+                        key={t.id}
+                        task={t}
+                        goal={goal}
+                        area={area}
+                        locked
+                        onToggle={() => undefined}
+                        onFocus={() => undefined}
                       />
                     ))}
                   </>

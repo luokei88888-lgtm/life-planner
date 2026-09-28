@@ -91,6 +91,7 @@ export const api = {
     level: Goal["level"];
     parentId?: string | null;
     year: number;
+    weekOffset?: 0 | 1;
   }) =>
     cmd<GoalMutation>("create_goal", {
       title: input.title,
@@ -99,6 +100,7 @@ export const api = {
       level: input.level,
       parentId: input.parentId ?? null,
       year: input.year,
+      weekOffset: input.weekOffset ?? 0,
     }),
   updateGoal: (id: string, title: string, why: string, areaId: string) =>
     cmd<GoalMutation>("update_goal", { id, title, why, areaId }),

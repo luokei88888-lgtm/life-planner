@@ -3,7 +3,10 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::db::{self, Db};
-use crate::domain::{self, catalog, format_date, is_allowed_parent, parent_level, parse_date, period_for, today, week_start};
+use crate::domain::{
+    self, add_days, catalog, format_date, is_allowed_parent, parent_level, parse_date, period_for,
+    today, week_start,
+};
 use crate::error::{
     AppError, GOAL_IN_USE, GOAL_PARENT_INVALID, NOT_FOUND, STATUS_INVALID, VALIDATION_FAILED,
 };
@@ -264,6 +267,19 @@ pub(crate) fn insert_goal(
     parent_id: Option<&str>,
     year: i64,
 ) -> Result<(String, Option<String>), AppError> {
+    insert_goal_offset(conn, title, why, area_id, level, parent_id, year, 0)
+}
+
+pub(crate) fn insert_goal_offset(
+    conn: &Connection,
+    title: &str,
+    why: &str,
+    area_id: &str,
+    level: &str,
+    parent_id: Option<&str>,
+    year: i64,
+    week_offset: i64,
+) -> Result<(String, Option<String>), AppError> {
     if !domain::is_goal_level(level) {
         return Err(AppError::new(VALIDATION_FAILED, "不支持的目标层级"));
     }
@@ -306,6 +322,15 @@ pub(crate) fn insert_goal(
     let why = domain::normalize_goal_why(why, parent.is_some())
         .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
 
+    if week_offset != 0 && level != "week" {
+        return Err(AppError::new(
+            VALIDATION_FAILED,
+            "只有周目标可以选择本周或下周",
+        ));
+    }
+    if !(0..=1).contains(&week_offset) {
+        return Err(AppError::new(VALIDATION_FAILED, "周目标只能选本周或下周"));
+    }
     let today = today();
     let week_start_on = week_starts_on(conn)?;
     let parent_period = parent.as_ref().map(|p| {
@@ -314,7 +339,21 @@ pub(crate) fn insert_goal(
             parse_date(&p.period_end).unwrap_or(today),
         )
     });
-    let (start, end) = period_for(level, year as i32, today, week_start_on, parent_period);
+    let anchor = if week_offset == 1 {
+        add_days(today, 7)
+    } else {
+        today
+    };
+    let (start, end) = period_for(level, year as i32, anchor, week_start_on, parent_period);
+    if week_offset == 1 {
+        let expected = week_start(add_days(today, 7), week_start_on);
+        if start != expected || end != add_days(expected, 6) {
+            return Err(AppError::new(
+                VALIDATION_FAILED,
+                "下周不在上级目标的周期里",
+            ));
+        }
+    }
     let id = db::new_id("g");
     conn.execute(
         "INSERT INTO goals (
@@ -345,13 +384,14 @@ pub fn create_goal(
     level: String,
     parent_id: Option<String>,
     year: i64,
+    week_offset: i64,
 ) -> Result<GoalMutation, AppError> {
     let title = domain::normalize_goal_title(&title)
         .map_err(|message| AppError::new(VALIDATION_FAILED, message))?;
     let parent_id = parent_id.filter(|v| !v.is_empty());
 
     db::with_conn(&db, |conn| {
-        let (id, warning) = insert_goal(
+        let (id, warning) = insert_goal_offset(
             conn,
             &title,
             &why,
@@ -359,6 +399,7 @@ pub fn create_goal(
             &level,
             parent_id.as_deref(),
             year,
+            week_offset,
         )?;
         mutation(conn, warning, Some(id))
     })

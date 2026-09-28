@@ -30,7 +30,6 @@ export function WeekPage() {
   const [busy, setBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [goalId, setGoalId] = useState("");
-  const [plannedDate, setPlannedDate] = useState("");
   const [editing, setEditing] = useState<Task | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editGoalId, setEditGoalId] = useState("");
@@ -60,10 +59,6 @@ export function WeekPage() {
         if (cancelled) return;
         setGoals(allGoals);
         setPlan(nextPlan);
-        setPlannedDate((prev) => {
-          if (prev && days.includes(prev)) return prev;
-          return days.includes(today) ? today : "";
-        });
       } catch (e) {
         if (!cancelled) notify(e instanceof ApiError ? e.message : "无法加载任务");
       }
@@ -71,8 +66,18 @@ export function WeekPage() {
     return () => {
       cancelled = true;
     };
-  }, [weekStart, notify, today]);
+  }, [weekStart, notify]);
 
+  const heading =
+    offset === 0 ? "本周" : offset === -1 ? "上周" : offset === 1 ? "下周" : "任务";
+  const weekNoun = offset === 0 ? "本周" : offset === 1 ? "下周" : "这一周";
+  const goalGroups = useMemo(
+    () => ({
+      week: `${weekNoun}目标`,
+      ancestor: `覆盖${weekNoun}的上级目标`,
+    }),
+    [weekNoun],
+  );
   const weekGoals = useMemo(
     () => goals.filter((g) => isTaskWeekGoal(g, weekStart)),
     [goals, weekStart],
@@ -93,17 +98,15 @@ export function WeekPage() {
     (t) => t.goal_id && !groupedGoals.some((g) => g.id === t.goal_id),
   );
   const addGoalOptions = useMemo(
-    () => taskGoalSelectOptions(goals, weekStart, areas, goalId),
-    [goals, weekStart, areas, goalId],
+    () => taskGoalSelectOptions(goals, weekStart, areas, goalId, goalGroups),
+    [goals, weekStart, areas, goalId, goalGroups],
   );
   const editGoalOptions = useMemo(
-    () => taskGoalSelectOptions(goals, weekStart, areas, editGoalId),
-    [goals, weekStart, areas, editGoalId],
+    () => taskGoalSelectOptions(goals, weekStart, areas, editGoalId, goalGroups),
+    [goals, weekStart, areas, editGoalId, goalGroups],
   );
   const prev = plan?.prev_unfinished ?? [];
   const showCarry = weekStart >= thisWeek && prev.length > 0;
-  const heading =
-    offset === 0 ? "本周" : offset === -1 ? "上周" : offset === 1 ? "下周" : "任务";
 
   useEffect(() => {
     const ok =
@@ -137,7 +140,6 @@ export function WeekPage() {
           title: nextTitle,
           weekStart,
           goalId: goalId || null,
-          plannedDate: plannedDate || null,
         }),
     );
     setTitle("");
@@ -199,7 +201,7 @@ export function WeekPage() {
         <div className="stack">
           <section className="card">
             <div className="card-title">
-              本周在推进 <Link className="muted small" to="/goals">管理</Link>
+              {weekNoun}在推进 <Link className="muted small" to="/goals">管理</Link>
             </div>
             {advancing.length ? (
               advancing.map((g) => {
@@ -219,7 +221,7 @@ export function WeekPage() {
                           <GoalProgress level={g.level} value={g.progress} />
                         </div>
                         <span className="muted small">{g.progress}%</span>
-                        {g.week_task_total > 0 ? (
+                        {offset === 0 && g.week_task_total > 0 ? (
                           <span className="muted small">
                             本周 {g.week_task_done}/{g.week_task_total}
                           </span>
@@ -273,15 +275,6 @@ export function WeekPage() {
                 value={goalId}
                 options={addGoalOptions}
                 onChange={setGoalId}
-              />
-              <Select
-                style={{ width: 130 }}
-                value={plannedDate}
-                options={[
-                  { value: "", label: "不定日期" },
-                  ...days.map((d) => ({ value: d, label: `${fmtMd(d)} ${weekdayLabel(d)}` })),
-                ]}
-                onChange={setPlannedDate}
               />
               <button className="btn primary" disabled={busy} type="submit">
                 添加
@@ -395,16 +388,17 @@ export function WeekPage() {
             <div className="hint">可以不挂，或挂本周目标、覆盖本周的月 / 季 / 年目标。</div>
           </div>
           <div className="field">
-            <label htmlFor="tm-date">计划日期</label>
+            <label htmlFor="tm-date">排到某一天（选填）</label>
             <Select
               id="tm-date"
               value={editDate}
               options={[
-                { value: "", label: "不定日期" },
+                { value: "", label: `${weekNoun}内即可` },
                 ...days.map((d) => ({ value: d, label: `${fmtMd(d)} ${weekdayLabel(d)}` })),
               ]}
               onChange={setEditDate}
             />
+            <div className="hint">不选就是{weekNoun}内完成。选了某一天，只是自己排期，不是截止日。</div>
           </div>
           <div className="modal-foot" style={{ justifyContent: "space-between" }}>
             <div className="btn-group">
